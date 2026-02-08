@@ -184,8 +184,25 @@ def fmt_price(price, sym="$"):
 def fetch_data(ticker, period, interval):
     return StockDataFetcher(ticker).fetch(period=period, interval=interval)
 
-def run_analysis(df, ticker):
-    return SMCStrategy(df, ticker=ticker).run()
+def run_analysis(df, ticker, stock_mode=False):
+    return SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
+
+def confidence_badge(signals):
+    """Return a confidence level based on fakeout warning count."""
+    warned = sum(1 for s in signals if "⚠" in s.details)
+    if warned == 0:
+        return '<span style="color:#4ade80;font-weight:600;">🟢 HIGH</span>'
+    elif warned <= 2:
+        return '<span style="color:#fbbf24;font-weight:600;">🟡 MODERATE</span>'
+    else:
+        return '<span style="color:#f87171;font-weight:600;">🔴 LOW</span>'
+
+def trend_info(signals):
+    """Extract trend momentum info from signals."""
+    for s in signals:
+        if "Trend momentum" in s.details or "No clear trend" in s.details:
+            return s.details
+    return None
 
 
 # ══════════════════════════════════════════════════════════
@@ -320,10 +337,13 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════
 
 if mode == "Single Ticker":
+    # Auto-enable stock mode for Stocks asset class
+    use_stock_mode = (asset_class == "Stocks")
+
     try:
         with st.spinner(f"Fetching {ticker} data..."):
             df = fetch_data(ticker, period, interval)
-            strategy = run_analysis(df, ticker)
+            strategy = run_analysis(df, ticker, stock_mode=use_stock_mode)
             setup = strategy.trade_setup
     except Exception as e:
         st.error(f"Could not fetch data for **{ticker}**: {e}")
@@ -340,18 +360,27 @@ if mode == "Single Ticker":
         color = "#22c55e" if chg >= 0 else "#ef4444"
         sign = "+" if chg >= 0 else ""
 
+        mode_tag = '<span style="font-size:0.65rem;color:#a78bfa;background:rgba(167,139,250,0.15);padding:2px 8px;border-radius:4px;margin-left:8px;">STOCK MODE</span>' if use_stock_mode else ""
         st.markdown(
             f'<div style="display:flex;align-items:baseline;gap:16px;margin-bottom:4px;">'
             f'<span style="font-size:2rem;font-weight:800;color:#e2e8f0;">{ticker}</span>'
             f'<span style="font-size:1.8rem;font-weight:700;color:#e2e8f0;">{fmt_price(price, currency_sym)}</span>'
             f'<span style="font-size:1rem;font-weight:600;color:{color};">{sign}{chg:.2f} ({sign}{chg_pct:.2f}%)</span>'
             f'<span style="font-size:0.75rem;color:#64748b;background:#1e293b;padding:3px 10px;border-radius:5px;">'
-            f'{ac_icon} {asset_class}</span></div>',
+            f'{ac_icon} {asset_class}</span>{mode_tag}</div>',
             unsafe_allow_html=True,
         )
+
+        # Confidence + trend info row
+        conf = confidence_badge(setup.signals)
+        trend = trend_info(setup.signals)
+        trend_html = f'<span style="color:#94a3b8;font-size:0.78rem;margin-left:12px;">{trend}</span>' if trend else ""
+
         st.markdown(
-            f'<div style="display:flex;gap:10px;align-items:center;">'
+            f'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
             f'<span class="bias-badge {bias_class(setup.bias)}">{setup.bias.value.upper()} BIAS</span>'
+            f'<span style="font-size:0.78rem;">Confidence: {conf}</span>'
+            f'{trend_html}'
             f'<span style="color:#64748b;font-size:0.78rem;">'
             f'{len(df)} candles · {PERIOD_LABELS.get(period, period)} · {INTERVAL_LABELS.get(interval, interval)}</span></div>',
             unsafe_allow_html=True,
@@ -531,6 +560,8 @@ elif mode == "Multi-Ticker Scanner":
         unsafe_allow_html=True,
     )
 
+    use_stock_mode_scan = (asset_class == "Stocks")
+
     if st.button("🔍  Run Scanner", type="primary", use_container_width=True):
         results = []
         progress = st.progress(0, text="Scanning tickers...")
@@ -539,7 +570,7 @@ elif mode == "Multi-Ticker Scanner":
             progress.progress((i + 1) / len(tickers_list), text=f"Analyzing {t}... ({i+1}/{len(tickers_list)})")
             try:
                 data = fetch_data(t, period, interval)
-                strat = run_analysis(data, t)
+                strat = run_analysis(data, t, stock_mode=use_stock_mode_scan)
                 results.append({"ticker": t, "setup": strat.trade_setup, "strategy": strat, "df": data})
             except Exception as e:
                 st.warning(f"Skipped **{t}**: {e}")
@@ -577,6 +608,7 @@ elif mode == "Multi-Ticker Scanner":
             c = ((cur - prv) / prv) * 100
             cc = "#4ade80" if c >= 0 else "#f87171"
             cs = "+" if c >= 0 else ""
+            conf = confidence_badge(s.signals)
 
             st.markdown(
                 f'<div class="scanner-row">'
@@ -589,6 +621,7 @@ elif mode == "Multi-Ticker Scanner":
                 f' · SL {fmt_price(s.stop_loss, currency_sym)}'
                 f' · TP {fmt_price(s.take_profit, currency_sym)}'
                 f' · R:R 1:{s.risk_reward:.1f}'
+                f' · {conf}'
                 f' · {len(s.signals)} signals</div></div>',
                 unsafe_allow_html=True,
             )
