@@ -237,10 +237,14 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] {
     color: #94a3b8;
 }
 
-/* ── Hide Streamlit branding ────────────────────────── */
+/* ── Hide Streamlit branding (keep header for sidebar toggle) ── */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-header { visibility: hidden; }
+[data-testid="stHeader"] {
+    background: rgba(10, 14, 23, 0.85);
+    backdrop-filter: blur(8px);
+}
+[data-testid="stDecoration"] { display: none; }
 
 /* ── Tab styling ────────────────────────────────────── */
 .stTabs [data-baseweb="tab-list"] {
@@ -388,6 +392,7 @@ with st.sidebar:
             value=ac["default_ticker"],
             label_visibility="collapsed",
             placeholder=_placeholders.get(asset_class, ""),
+            key=f"ticker_input_{asset_class}",
         ).upper().strip()
 
         # Quick-pick preset buttons
@@ -397,6 +402,7 @@ with st.sidebar:
                 "Quick pick",
                 ["— Custom —"] + preset_names,
                 label_visibility="collapsed",
+                key=f"preset_group_{asset_class}",
             )
             if selected_preset != "— Custom —":
                 preset_tickers = ac["presets"][selected_preset]
@@ -404,6 +410,7 @@ with st.sidebar:
                     "Select ticker",
                     preset_tickers,
                     label_visibility="collapsed",
+                    key=f"preset_ticker_{asset_class}_{selected_preset}",
                 )
                 ticker = quick_pick
     else:
@@ -413,6 +420,7 @@ with st.sidebar:
             "Watchlist",
             ["Custom"] + preset_names,
             label_visibility="collapsed",
+            key=f"scanner_source_{asset_class}",
         )
         if scanner_source == "Custom":
             default_scan = ", ".join(ac["presets"][preset_names[0]]) if preset_names else ""
@@ -420,6 +428,7 @@ with st.sidebar:
                 "Tickers (comma-separated)",
                 value=default_scan,
                 label_visibility="collapsed",
+                key=f"scanner_input_{asset_class}",
             )
             tickers_list = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
         else:
