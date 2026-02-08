@@ -22,7 +22,7 @@ import config
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 from data.fetcher import StockDataFetcher
 from strategies.smc_strategy import SMCStrategy
@@ -32,6 +32,7 @@ from ui.charts import (
     build_score_gauge,
     build_signal_breakdown,
 )
+from backtesting.engine import Backtester, backtest_session, BacktestReport
 
 # ──────────────────────────────────────────────────────────
 #  Page Configuration
@@ -331,7 +332,7 @@ with st.sidebar:
     st.subheader("Mode", divider="gray")
     mode = st.radio(
         "Analysis Mode",
-        ["📊 Daily Analysis", "🔍 Search Ticker", "📋 Custom Scanner"],
+        ["📊 Daily Analysis", "🔍 Search Ticker", "📋 Custom Scanner", "🧪 Backtest"],
         label_visibility="collapsed",
         key="mode_selector",
     )
@@ -428,6 +429,56 @@ with st.sidebar:
         else:
             tickers_list = ac["presets"][scanner_source]
             st.caption(", ".join(tickers_list))
+
+    # ── Backtest controls ──────────────────────
+    if mode == "🧪 Backtest":
+        st.subheader("Date Range", divider="gray")
+
+        # Preset date ranges
+        BT_PRESETS = {
+            "Week 1: Jan 26–30": ("2026-01-26", "2026-01-30"),
+            "Week 2: Feb 2–6": ("2026-02-02", "2026-02-06"),
+            "Both weeks: Jan 26 – Feb 6": ("2026-01-26", "2026-02-06"),
+            "Custom": None,
+        }
+        bt_preset = st.selectbox(
+            "Quick select",
+            list(BT_PRESETS.keys()),
+            key="bt_preset",
+        )
+        if BT_PRESETS[bt_preset] is not None:
+            bt_start_date = datetime.strptime(BT_PRESETS[bt_preset][0], "%Y-%m-%d").date()
+            bt_end_date = datetime.strptime(BT_PRESETS[bt_preset][1], "%Y-%m-%d").date()
+        else:
+            bt_start_date = st.date_input("Start date", value=date(2026, 1, 26), key="bt_start")
+            bt_end_date = st.date_input("End date", value=date(2026, 1, 30), key="bt_end")
+
+        st.caption(f"📅 {bt_start_date} → {bt_end_date}")
+
+        st.subheader("Trading Session", divider="gray")
+        session_names = list(DAILY_SESSIONS.keys())
+        default_session_bt = ASSET_TO_SESSION.get(asset_class, session_names[0])
+        default_idx_bt = session_names.index(default_session_bt) if default_session_bt in session_names else 0
+        bt_session = st.selectbox(
+            "Session preset",
+            session_names,
+            index=default_idx_bt,
+            key=f"bt_session_{asset_class}",
+        )
+        bt_dw = DAILY_SESSIONS[bt_session]
+        st.caption(", ".join(bt_dw["tickers"]))
+        if bt_dw["stock_mode"]:
+            st.info("**Stock Mode** active", icon="🏛️")
+
+        st.subheader("Settings", divider="gray")
+        bt_interval = st.selectbox(
+            "Interval",
+            ["1h", "1d"],
+            index=0 if not bt_dw["stock_mode"] else 1,
+            format_func=lambda x: INTERVAL_LABELS.get(x, x),
+            key="bt_interval",
+        )
+        bt_max_hold = st.slider("Max bars to hold", 10, 100, 50, 5, key="bt_maxhold")
 
     # ── Timeframe (Search & Custom only) ──────
     if mode in ("🔍 Search Ticker", "📋 Custom Scanner"):
@@ -762,3 +813,186 @@ elif mode == "📋 Custom Scanner":
         results = run_scan(tickers_list, period, interval, stock_mode=use_stock_mode)
         render_scanner_results(results, currency_sym, show_obs, show_fvgs,
                                show_liq, show_structure, show_trade, show_pd)
+
+
+# ══════════════════════════════════════════════════════════
+#  MAIN CONTENT — Backtest
+# ══════════════════════════════════════════════════════════
+
+elif mode == "🧪 Backtest":
+    st.markdown(
+        f'<div style="margin-bottom:20px;">'
+        f'<span style="font-size:1.8rem;font-weight:800;color:#e2e8f0;">'
+        f'🧪 Strategy Backtest</span>'
+        f'<span style="color:#64748b;font-size:0.85rem;margin-left:16px;">'
+        f'{bt_start_date} → {bt_end_date} · {bt_session}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    if st.button("🚀  Run Backtest", type="primary", use_container_width=True):
+        progress = st.progress(0, text="Starting backtest...")
+        tickers = bt_dw["tickers"]
+
+        def update_progress(i, total, ticker):
+            progress.progress((i + 1) / total, text=f"Backtesting {ticker}... ({i+1}/{total})")
+
+        reports = backtest_session(
+            tickers=tickers,
+            start_date=str(bt_start_date),
+            end_date=str(bt_end_date),
+            interval=bt_interval,
+            lookback="3mo",
+            stock_mode=bt_dw["stock_mode"],
+            max_hold=bt_max_hold,
+            progress_callback=update_progress,
+        )
+        progress.empty()
+
+        # ── Aggregate metrics across all tickers ──
+        all_trades = []
+        for r in reports:
+            all_trades.extend(r.trades)
+
+        total_trades = len(all_trades)
+        total_wins = sum(1 for t in all_trades if t.outcome == "WIN")
+        total_losses = sum(1 for t in all_trades if t.outcome == "LOSS")
+        total_timeouts = sum(1 for t in all_trades if t.outcome == "TIMEOUT")
+        win_rate = (total_wins / total_trades * 100) if total_trades > 0 else 0
+        total_pnl = sum(t.pnl_pct for t in all_trades)
+        avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
+
+        # ── Summary metrics ──
+        st.markdown(
+            '<div style="margin:20px 0 10px;font-size:1.3rem;font-weight:700;color:#e2e8f0;">'
+            '📊 Overall Performance</div>',
+            unsafe_allow_html=True,
+        )
+
+        m1, m2, m3, m4, m5, m6 = st.columns(6)
+        m1.metric("Total Trades", total_trades)
+        m2.metric("Wins", total_wins)
+        m3.metric("Losses", total_losses)
+        m4.metric("Timeouts", total_timeouts)
+        m5.metric("Win Rate", f"{win_rate:.1f}%")
+        m6.metric("Total P&L", f"{total_pnl:+.2f}%")
+
+        if total_trades > 0:
+            # ── Equity curve ──
+            st.markdown(
+                '<div style="margin:30px 0 10px;font-size:1.3rem;font-weight:700;color:#e2e8f0;">'
+                '📈 Equity Curve (cumulative P&L)</div>',
+                unsafe_allow_html=True,
+            )
+            sorted_trades = sorted(all_trades, key=lambda t: t.date)
+            equity = [0.0]
+            labels = ["Start"]
+            for t in sorted_trades:
+                equity.append(equity[-1] + t.pnl_pct)
+                labels.append(f"{t.ticker} ({t.date})")
+
+            import plotly.graph_objects as go
+            eq_fig = go.Figure()
+            eq_fig.add_trace(go.Scatter(
+                x=labels, y=equity,
+                mode="lines+markers",
+                line=dict(color="#4ade80" if equity[-1] >= 0 else "#f87171", width=2),
+                marker=dict(size=6),
+                fill="tozeroy",
+                fillcolor="rgba(74,222,128,0.1)" if equity[-1] >= 0 else "rgba(248,113,113,0.1)",
+            ))
+            eq_fig.update_layout(
+                template="plotly_dark",
+                paper_bgcolor="#0a0e17",
+                plot_bgcolor="#0a0e17",
+                height=350,
+                margin=dict(l=40, r=20, t=20, b=60),
+                xaxis=dict(showgrid=False, tickangle=-45),
+                yaxis=dict(title="Cumulative P&L (%)", gridcolor="#1e293b"),
+            )
+            st.plotly_chart(eq_fig, use_container_width=True, config={"displayModeBar": False})
+
+            # ── Per-ticker breakdown ──
+            st.markdown(
+                '<div style="margin:30px 0 10px;font-size:1.3rem;font-weight:700;color:#e2e8f0;">'
+                '🔍 Per-Ticker Breakdown</div>',
+                unsafe_allow_html=True,
+            )
+
+            for r in reports:
+                if r.total_trades == 0:
+                    continue
+                with st.expander(
+                    f"{'✅' if r.win_rate >= 50 else '⚠️'} {r.ticker} — "
+                    f"{r.total_trades} trades · {r.win_rate:.0f}% win · "
+                    f"{r.total_pnl_pct:+.2f}% P&L"
+                ):
+                    rc1, rc2, rc3, rc4 = st.columns(4)
+                    rc1.metric("Trades", r.total_trades)
+                    rc2.metric("Win Rate", f"{r.win_rate:.0f}%")
+                    rc3.metric("Avg P&L", f"{r.avg_pnl_pct:+.2f}%")
+                    rc4.metric("Best / Worst", f"{r.best_trade_pnl:+.1f}% / {r.worst_trade_pnl:+.1f}%")
+
+                    # Trade table
+                    if r.trades:
+                        trade_data = []
+                        for t in r.trades:
+                            outcome_emoji = {"WIN": "✅", "LOSS": "❌", "TIMEOUT": "⏰", "OPEN": "🔵"}.get(t.outcome, "")
+                            trade_data.append({
+                                "Date": t.date,
+                                "Action": t.action,
+                                "Entry": f"${t.entry_price:.4f}",
+                                "SL": f"${t.stop_loss:.4f}",
+                                "TP": f"${t.take_profit:.4f}",
+                                "Exit": f"${t.exit_price:.4f}" if t.exit_price > 0 else "—",
+                                "Outcome": f"{outcome_emoji} {t.outcome}",
+                                "P&L": f"{t.pnl_pct:+.2f}%",
+                                "R:R": f"{t.actual_rr:+.1f}",
+                                "Bars": t.bars_held,
+                                "Confidence": t.confidence,
+                                "Score": t.score,
+                            })
+                        st.dataframe(pd.DataFrame(trade_data), use_container_width=True, hide_index=True)
+
+            # ── All trades table ──
+            st.markdown(
+                '<div style="margin:30px 0 10px;font-size:1.3rem;font-weight:700;color:#e2e8f0;">'
+                '📋 All Trades</div>',
+                unsafe_allow_html=True,
+            )
+            if all_trades:
+                all_data = []
+                for t in sorted_trades:
+                    outcome_emoji = {"WIN": "✅", "LOSS": "❌", "TIMEOUT": "⏰", "OPEN": "🔵"}.get(t.outcome, "")
+                    all_data.append({
+                        "Ticker": t.ticker,
+                        "Date": t.date,
+                        "Action": t.action,
+                        "Entry": f"${t.entry_price:.4f}",
+                        "SL": f"${t.stop_loss:.4f}",
+                        "TP": f"${t.take_profit:.4f}",
+                        "Exit": f"${t.exit_price:.4f}" if t.exit_price > 0 else "—",
+                        "Outcome": f"{outcome_emoji} {t.outcome}",
+                        "P&L": f"{t.pnl_pct:+.2f}%",
+                        "Bars": t.bars_held,
+                        "Confidence": t.confidence,
+                    })
+                st.dataframe(pd.DataFrame(all_data), use_container_width=True, hide_index=True)
+
+        elif total_trades == 0:
+            st.warning(
+                "No actionable trades found in this date range. "
+                "The strategy may not have generated BUY/SELL signals for these tickers "
+                "during this period. Try a wider date range or different session."
+            )
+
+    else:
+        st.markdown(
+            '<div style="text-align:center;padding:60px 20px;color:#64748b;">'
+            '<div style="font-size:3rem;margin-bottom:16px;">🧪</div>'
+            '<div style="font-size:1.2rem;font-weight:600;color:#94a3b8;">Configure your backtest and click Run</div>'
+            '<div style="font-size:0.85rem;margin-top:8px;">'
+            'The strategy will run day-by-day on historical data and simulate trade outcomes</div>'
+            '<div style="font-size:0.78rem;margin-top:16px;color:#64748b;">'
+            'For each signal: walks forward bar-by-bar to check if TP or SL is hit first</div></div>',
+            unsafe_allow_html=True,
+        )
