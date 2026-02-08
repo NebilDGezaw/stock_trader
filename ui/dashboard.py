@@ -9,8 +9,17 @@ Run with:  streamlit run ui/dashboard.py
 import sys
 import os
 
-# Ensure the project root is on the path so our modules resolve
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Ensure the project root is on the path so our modules resolve.
+# Must happen before ANY project imports.
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+# Force-reload our config in case a stale/different 'config' was cached
+if "config" in sys.modules:
+    del sys.modules["config"]
+
+import config   # noqa: E402  — must import after path setup
 
 import streamlit as st
 import pandas as pd
@@ -25,7 +34,6 @@ from ui.charts import (
     build_score_gauge,
     build_signal_breakdown,
 )
-import config
 
 # ──────────────────────────────────────────────────────────
 #  Page Configuration
