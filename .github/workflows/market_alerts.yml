@@ -1,15 +1,27 @@
 name: Market Alerts
 
 on:
-  # ── Scheduled sessions ──────────────────────────────────
+  # ── Scheduled sessions (all times UTC) ──────────────────
   schedule:
-    # LONDON SESSION: 8:00 AM UTC (Mon-Fri)
+    # LONDON OPEN: 08:00 UTC = 02:00 AM CT (Mon-Fri)
     - cron: "0 8 * * 1-5"
 
-    # NEW YORK SESSION: 9:30 AM ET = 14:30 UTC (Mon-Fri)
+    # LONDON/NY OVERLAP: 13:00 UTC = 07:00 AM CT (Mon-Fri)
+    - cron: "0 13 * * 1-5"
+
+    # NY OPEN: 14:30 UTC = 08:30 AM CT (Mon-Fri)
     - cron: "30 14 * * 1-5"
 
-  # ── Manual trigger (for testing) ────────────────────────
+    # NY MID-SESSION: 18:00 UTC = 12:00 PM CT (Mon-Fri)
+    - cron: "0 18 * * 1-5"
+
+    # NY CLOSE: 21:00 UTC = 03:00 PM CT (Mon-Fri)
+    - cron: "0 21 * * 1-5"
+
+    # ASIAN SESSION (crypto only): 01:00 UTC = 07:00 PM CT (Daily)
+    - cron: "0 1 * * *"
+
+  # ── Manual trigger ──────────────────────────────────────
   workflow_dispatch:
     inputs:
       scan_type:
@@ -20,15 +32,18 @@ on:
         options:
           - stocks_private
           - london_group
+          - overlap_group
           - ny_group
+          - ny_mid_stocks
+          - ny_close_stocks
+          - crypto_asian
           - all
 
 jobs:
   # ─────────────────────────────────────────────────────────
-  #  PRIVATE DM: Stocks + Leveraged ETFs (daily at NY open)
-  #  Auto-selects ICT for stocks, Momentum for leveraged
+  #  PRIVATE DM: Stocks + Leveraged → NY Open (08:30 AM CT)
   # ─────────────────────────────────────────────────────────
-  stocks-private:
+  stocks-ny-open:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-
@@ -44,7 +59,7 @@ jobs:
           cache: "pip"
       - run: pip install yfinance pandas numpy
 
-      - name: "🏛️ Stocks + Leveraged → Private DM"
+      - name: "🏛️ Stocks → Private DM (NY Open)"
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -53,13 +68,74 @@ jobs:
           --tickers MSTU MSTR MSTZ TSLL SPY AAPL MSFT TSLA GOOGL NVDA META
           --stock-mode
           --always-report MSTU MSTR MSTZ TSLL
-          --label "🏛️ US Stocks & Leveraged — NY Open"
+          --label "🏛️ US Stocks — NY Open (8:30 AM CT)"
           --interval 1d --period 6mo
 
   # ─────────────────────────────────────────────────────────
-  #  GROUP: London Session
-  #  Forex (auto-selects Forex ICT on 1h) + Gold & Silver
-  #  (auto-selects Crypto Momentum for commodities)
+  #  PRIVATE DM: Stocks Mid-Session → 12:00 PM CT
+  # ─────────────────────────────────────────────────────────
+  stocks-ny-mid:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.schedule == '0 18 * * 1-5' ||
+      github.event.inputs.scan_type == 'ny_mid_stocks' ||
+      github.event.inputs.scan_type == 'all'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install yfinance pandas numpy
+
+      - name: "🏛️ Stocks → Private DM (Mid-Session)"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: >-
+          python -m alerts.telegram_bot
+          --tickers MSTU MSTR MSTZ TSLL SPY AAPL MSFT TSLA GOOGL NVDA META
+          --stock-mode
+          --always-report MSTU MSTR MSTZ TSLL
+          --label "🏛️ US Stocks — Mid-Session (12:00 PM CT)"
+          --interval 1d --period 6mo
+
+  # ─────────────────────────────────────────────────────────
+  #  PRIVATE DM: Stocks Close Summary → 3:00 PM CT
+  # ─────────────────────────────────────────────────────────
+  stocks-ny-close:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.schedule == '0 21 * * 1-5' ||
+      github.event.inputs.scan_type == 'ny_close_stocks' ||
+      github.event.inputs.scan_type == 'all'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install yfinance pandas numpy
+
+      - name: "🏛️ Stocks → Private DM (Close)"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: >-
+          python -m alerts.telegram_bot
+          --tickers MSTU MSTR MSTZ TSLL SPY AAPL MSFT TSLA GOOGL NVDA META
+          --stock-mode
+          --always-report MSTU MSTR MSTZ TSLL
+          --label "🏛️ US Stocks — Close Summary (3:00 PM CT)"
+          --interval 1d --period 6mo
+
+  # ─────────────────────────────────────────────────────────
+  #  GROUP: London Open → 2:00 AM CT
+  #  Forex + Gold & Silver
   # ─────────────────────────────────────────────────────────
   london-group:
     runs-on: ubuntu-latest
@@ -77,19 +153,47 @@ jobs:
           cache: "pip"
       - run: pip install yfinance pandas numpy
 
-      - name: "🇬🇧 London Session → Group"
+      - name: "🇬🇧 London Open → Group"
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: >-
           python -m alerts.telegram_bot
           --tickers EURUSD=X GBPUSD=X EURGBP=X GBPJPY=X USDCHF=X GC=F SI=F
-          --label "🇬🇧 London Session — Forex & Metals"
+          --label "🇬🇧 London Open — Forex & Metals (2:00 AM CT)"
 
   # ─────────────────────────────────────────────────────────
-  #  GROUP: New York Session
-  #  Crypto (auto-selects Crypto Momentum) + Gold & Silver
-  #  + NY Forex (auto-selects Forex ICT on 1h)
+  #  GROUP: London/NY Overlap → 7:00 AM CT
+  #  Forex + Crypto + Metals (highest volume window)
+  # ─────────────────────────────────────────────────────────
+  overlap-group:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.schedule == '0 13 * * 1-5' ||
+      github.event.inputs.scan_type == 'overlap_group' ||
+      github.event.inputs.scan_type == 'all'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install yfinance pandas numpy
+
+      - name: "🔥 London/NY Overlap → Group"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
+        run: >-
+          python -m alerts.telegram_bot
+          --tickers EURUSD=X GBPUSD=X USDJPY=X GC=F SI=F BTC-USD ETH-USD SOL-USD
+          --label "🔥 London/NY Overlap — Peak Volume (7:00 AM CT)"
+
+  # ─────────────────────────────────────────────────────────
+  #  GROUP: NY Session → 8:30 AM CT
+  #  Crypto + Metals + NY Forex
   # ─────────────────────────────────────────────────────────
   ny-group:
     runs-on: ubuntu-latest
@@ -114,4 +218,33 @@ jobs:
         run: >-
           python -m alerts.telegram_bot
           --tickers GC=F SI=F BTC-USD ETH-USD SOL-USD XRP-USD BNB-USD USDJPY=X USDCAD=X GBPUSD=X
-          --label "🇺🇸 NY Session — Crypto, Metals & Forex"
+          --label "🇺🇸 NY Session — Crypto, Metals & Forex (8:30 AM CT)"
+
+  # ─────────────────────────────────────────────────────────
+  #  GROUP: Asian Session (crypto) → 7:00 PM CT DAILY
+  #  Crypto runs 24/7 — catch Asian market activity
+  # ─────────────────────────────────────────────────────────
+  crypto-asian:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.schedule == '0 1 * * *' ||
+      github.event.inputs.scan_type == 'crypto_asian' ||
+      github.event.inputs.scan_type == 'all'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install yfinance pandas numpy
+
+      - name: "🌏 Asian Session (Crypto) → Group"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
+        run: >-
+          python -m alerts.telegram_bot
+          --tickers BTC-USD ETH-USD SOL-USD XRP-USD BNB-USD
+          --label "🌏 Asian Session — Crypto (7:00 PM CT)"
