@@ -77,6 +77,14 @@ class CryptoMomentumStrategy:
         return self._setup
 
     @property
+    def bullish_score(self) -> int:
+        return self._bull_score
+
+    @property
+    def bearish_score(self) -> int:
+        return self._bear_score
+
+    @property
     def net_score(self) -> int:
         return self._bull_score - self._bear_score
 

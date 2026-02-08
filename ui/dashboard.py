@@ -26,6 +26,9 @@ from datetime import datetime, date, timedelta
 
 from data.fetcher import StockDataFetcher
 from strategies.smc_strategy import SMCStrategy
+from strategies.leveraged_momentum import LeveragedMomentumStrategy
+from strategies.crypto_momentum import CryptoMomentumStrategy
+from strategies.forex_ict import ForexICTStrategy
 from models.signals import TradeAction, MarketBias, SignalType
 from ui.charts import (
     build_main_chart,
@@ -474,8 +477,37 @@ def fmt_price(price, sym="$"):
 def fetch_data(ticker, period, interval):
     return StockDataFetcher(ticker).fetch(period=period, interval=interval)
 
+def detect_asset_type(ticker: str) -> str:
+    """Auto-detect asset type from ticker symbol."""
+    t = ticker.upper()
+    if t in config.LEVERAGED_TICKERS:
+        return "leveraged"
+    # Crypto: ends with -USD (but not forex pairs)
+    crypto_tickers = [tk for presets in config.ASSET_CLASSES.get("Crypto", {}).get("presets", {}).values() for tk in presets]
+    if t in crypto_tickers or (t.endswith("-USD") and "=" not in t):
+        return "crypto"
+    # Forex: contains =X
+    if "=X" in t:
+        return "forex"
+    # Commodities: contains =F
+    commodity_tickers = [tk for presets in config.ASSET_CLASSES.get("Commodities", {}).get("presets", {}).values() for tk in presets]
+    if t in commodity_tickers or "=F" in t:
+        return "commodity"
+    return "stocks"
+
 def run_analysis(df, ticker, stock_mode=False):
-    return SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
+    asset_type = detect_asset_type(ticker)
+    if asset_type == "leveraged":
+        return LeveragedMomentumStrategy(df, ticker=ticker, stock_mode=True).run()
+    elif asset_type == "crypto":
+        return CryptoMomentumStrategy(df, ticker=ticker).run()
+    elif asset_type == "forex":
+        return ForexICTStrategy(df, ticker=ticker).run()
+    elif asset_type == "commodity":
+        # Crypto momentum works great on gold/silver
+        return CryptoMomentumStrategy(df, ticker=ticker).run()
+    else:
+        return SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
 
 def confidence_badge(signals):
     warned = sum(1 for s in signals if "⚠" in s.details)
@@ -1001,6 +1033,10 @@ elif mode == "🔍 Search Ticker":
     with tab_details:
         col_a, col_b = st.columns(2)
         _u = position_unit.rstrip("s") if position_unit != "lots" else "lot"
+        asset_type = detect_asset_type(ticker)
+        strategy_name = {"leveraged": "Leveraged Momentum", "crypto": "Crypto Momentum",
+                         "forex": "Forex ICT", "commodity": "Crypto Momentum",
+                         "stocks": "ICT / Smart Money"}.get(asset_type, "ICT / Smart Money")
 
         with col_a:
             st.markdown(
@@ -1008,6 +1044,7 @@ elif mode == "🔍 Search Ticker":
                 + "".join([
                     f'<div class="info-row"><span class="info-label">{k}</span><span class="info-value">{v}</span></div>'
                     for k, v in [
+                        ("Strategy", strategy_name),
                         ("Action", setup.action.value),
                         ("Entry Price", fmt_price(setup.entry_price, currency_sym)),
                         ("Stop Loss", fmt_price(setup.stop_loss, currency_sym)),
@@ -1018,64 +1055,100 @@ elif mode == "🔍 Search Ticker":
                 ]) + '</div>',
                 unsafe_allow_html=True,
             )
-            ms = strategy.structure
-            st.markdown(
-                '<div class="info-box"><h4>Market Structure</h4>'
-                + "".join([
-                    f'<div class="info-row"><span class="info-label">{k}</span><span class="info-value">{v}</span></div>'
-                    for k, v in [
-                        ("Bias", ms.bias.value.upper()),
-                        ("Swing Highs", len(ms.swing_highs)),
-                        ("Swing Lows", len(ms.swing_lows)),
-                        ("Structure Signals", len(ms.signals)),
-                    ]
-                ]) + '</div>',
-                unsafe_allow_html=True,
-            )
+
+            # ICT-specific details (only for SMC and Forex ICT strategies)
+            if hasattr(strategy, 'structure') and strategy.structure is not None:
+                ms = strategy.structure
+                st.markdown(
+                    '<div class="info-box"><h4>Market Structure</h4>'
+                    + "".join([
+                        f'<div class="info-row"><span class="info-label">{k}</span><span class="info-value">{v}</span></div>'
+                        for k, v in [
+                            ("Bias", ms.bias.value.upper()),
+                            ("Swing Highs", len(ms.swing_highs)),
+                            ("Swing Lows", len(ms.swing_lows)),
+                            ("Structure Signals", len(ms.signals)),
+                        ]
+                    ]) + '</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                # Momentum strategy summary
+                bull_sigs = [s for s in setup.signals if s.bias == MarketBias.BULLISH]
+                bear_sigs = [s for s in setup.signals if s.bias == MarketBias.BEARISH]
+                st.markdown(
+                    '<div class="info-box"><h4>Signal Summary</h4>'
+                    + "".join([
+                        f'<div class="info-row"><span class="info-label">{k}</span><span class="info-value">{v}</span></div>'
+                        for k, v in [
+                            ("Strategy", strategy_name),
+                            ("Bullish Signals", f"{len(bull_sigs)} (score: {sum(s.score for s in bull_sigs)})"),
+                            ("Bearish Signals", f"{len(bear_sigs)} (score: {sum(s.score for s in bear_sigs)})"),
+                            ("Net Score", setup.composite_score),
+                        ]
+                    ]) + '</div>',
+                    unsafe_allow_html=True,
+                )
 
         with col_b:
-            ob = strategy.ob_detector
-            st.markdown(
-                '<div class="info-box"><h4>Order Blocks</h4>'
-                + "".join([
-                    f'<div class="info-row"><span class="info-label">{k}</span><span class="info-value">{v}</span></div>'
-                    for k, v in [
-                        ("Total Found", len(ob.order_blocks)),
-                        ("Active", len(ob.active_blocks())),
-                        ("Bullish", sum(1 for o in ob.order_blocks if o.ob_type == "bullish")),
-                        ("Bearish", sum(1 for o in ob.order_blocks if o.ob_type == "bearish")),
-                    ]
-                ]) + '</div>',
-                unsafe_allow_html=True,
-            )
-            fvg = strategy.fvg_detector
-            st.markdown(
-                '<div class="info-box"><h4>Fair Value Gaps</h4>'
-                + "".join([
-                    f'<div class="info-row"><span class="info-label">{k}</span><span class="info-value">{v}</span></div>'
-                    for k, v in [
-                        ("Total Found", len(fvg.fvgs)),
-                        ("Active", len(fvg.active_fvgs())),
-                        ("Bullish", sum(1 for f in fvg.fvgs if f.fvg_type == "bullish")),
-                        ("Bearish", sum(1 for f in fvg.fvgs if f.fvg_type == "bearish")),
-                    ]
-                ]) + '</div>',
-                unsafe_allow_html=True,
-            )
-            liq = strategy.liq_analyzer
-            st.markdown(
-                '<div class="info-box"><h4>Liquidity</h4>'
-                + "".join([
-                    f'<div class="info-row"><span class="info-label">{k}</span><span class="info-value">{v}</span></div>'
-                    for k, v in [
-                        ("Levels", len(liq.levels)),
-                        ("Equal Highs", sum(1 for l in liq.levels if l.level_type == "equal_highs")),
-                        ("Equal Lows", sum(1 for l in liq.levels if l.level_type == "equal_lows")),
-                        ("Sweeps", sum(1 for l in liq.levels if l.swept)),
-                    ]
-                ]) + '</div>',
-                unsafe_allow_html=True,
-            )
+            if hasattr(strategy, 'ob_detector') and strategy.ob_detector is not None:
+                ob = strategy.ob_detector
+                st.markdown(
+                    '<div class="info-box"><h4>Order Blocks</h4>'
+                    + "".join([
+                        f'<div class="info-row"><span class="info-label">{k}</span><span class="info-value">{v}</span></div>'
+                        for k, v in [
+                            ("Total Found", len(ob.order_blocks)),
+                            ("Active", len(ob.active_blocks())),
+                            ("Bullish", sum(1 for o in ob.order_blocks if o.ob_type == "bullish")),
+                            ("Bearish", sum(1 for o in ob.order_blocks if o.ob_type == "bearish")),
+                        ]
+                    ]) + '</div>',
+                    unsafe_allow_html=True,
+                )
+            if hasattr(strategy, 'fvg_detector') and strategy.fvg_detector is not None:
+                fvg = strategy.fvg_detector
+                st.markdown(
+                    '<div class="info-box"><h4>Fair Value Gaps</h4>'
+                    + "".join([
+                        f'<div class="info-row"><span class="info-label">{k}</span><span class="info-value">{v}</span></div>'
+                        for k, v in [
+                            ("Total Found", len(fvg.fvgs)),
+                            ("Active", len(fvg.active_fvgs())),
+                            ("Bullish", sum(1 for f in fvg.fvgs if f.fvg_type == "bullish")),
+                            ("Bearish", sum(1 for f in fvg.fvgs if f.fvg_type == "bearish")),
+                        ]
+                    ]) + '</div>',
+                    unsafe_allow_html=True,
+                )
+            if hasattr(strategy, 'liq_analyzer') and strategy.liq_analyzer is not None:
+                liq = strategy.liq_analyzer
+                st.markdown(
+                    '<div class="info-box"><h4>Liquidity</h4>'
+                    + "".join([
+                        f'<div class="info-row"><span class="info-label">{k}</span><span class="info-value">{v}</span></div>'
+                        for k, v in [
+                            ("Levels", len(liq.levels)),
+                            ("Equal Highs", sum(1 for l in liq.levels if l.level_type == "equal_highs")),
+                            ("Equal Lows", sum(1 for l in liq.levels if l.level_type == "equal_lows")),
+                            ("Sweeps", sum(1 for l in liq.levels if l.swept)),
+                        ]
+                    ]) + '</div>',
+                    unsafe_allow_html=True,
+                )
+            # For non-ICT strategies, show indicator details
+            if not hasattr(strategy, 'ob_detector'):
+                # Group signals by type
+                from collections import Counter
+                type_counts = Counter(s.signal_type.value for s in setup.signals)
+                st.markdown(
+                    '<div class="info-box"><h4>Indicator Breakdown</h4>'
+                    + "".join([
+                        f'<div class="info-row"><span class="info-label">{k.replace("_", " ").title()}</span><span class="info-value">{v} signal{"s" if v > 1 else ""}</span></div>'
+                        for k, v in type_counts.most_common()
+                    ]) + '</div>',
+                    unsafe_allow_html=True,
+                )
 
         with st.expander("View Raw OHLCV Data"):
             _s = df.iloc[-1]["Close"]

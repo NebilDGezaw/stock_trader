@@ -103,23 +103,23 @@ def build_main_chart(
         row=2, col=1,
     )
 
-    # ── Overlays ──────────────────────────────────────────
-    if show_structure and strategy.structure:
+    # ── Overlays (safe for non-ICT strategies) ─────────────
+    if show_structure and getattr(strategy, 'structure', None):
         _add_structure_overlay(fig, df, strategy)
 
-    if show_order_blocks and strategy.ob_detector:
+    if show_order_blocks and getattr(strategy, 'ob_detector', None):
         _add_order_block_overlay(fig, df, strategy)
 
-    if show_fvgs and strategy.fvg_detector:
+    if show_fvgs and getattr(strategy, 'fvg_detector', None):
         _add_fvg_overlay(fig, df, strategy)
 
-    if show_liquidity and strategy.liq_analyzer:
+    if show_liquidity and getattr(strategy, 'liq_analyzer', None):
         _add_liquidity_overlay(fig, df, strategy)
 
-    if show_premium_discount and strategy.structure:
+    if show_premium_discount and getattr(strategy, 'structure', None):
         _add_premium_discount_overlay(fig, df, strategy)
 
-    if show_trade_levels and strategy.trade_setup:
+    if show_trade_levels and getattr(strategy, 'trade_setup', None):
         _add_trade_levels(fig, df, strategy)
 
     # ── Layout ────────────────────────────────────────────
@@ -178,7 +178,7 @@ def build_main_chart(
 
 def _add_structure_overlay(fig, df, strategy):
     """Add swing high/low markers and BOS/CHoCH annotations."""
-    ms = strategy.structure
+    ms = getattr(strategy, "structure", None)
 
     # Swing highs
     sh_indices = [i for i, _ in ms.swing_highs]
@@ -248,7 +248,7 @@ def _add_structure_overlay(fig, df, strategy):
 
 def _add_order_block_overlay(fig, df, strategy):
     """Draw rectangles for active order blocks."""
-    obs = strategy.ob_detector.order_blocks
+    obs = getattr(strategy, "ob_detector", None).order_blocks
     last_idx = len(df) - 1
 
     for ob in obs:
@@ -299,7 +299,7 @@ def _add_order_block_overlay(fig, df, strategy):
 
 def _add_fvg_overlay(fig, df, strategy):
     """Draw rectangles for fair value gaps."""
-    fvgs = strategy.fvg_detector.fvgs
+    fvgs = getattr(strategy, "fvg_detector", None).fvgs
     last_idx = len(df) - 1
 
     for fvg in fvgs:
@@ -336,7 +336,7 @@ def _add_fvg_overlay(fig, df, strategy):
 
 def _add_liquidity_overlay(fig, df, strategy):
     """Draw horizontal lines for liquidity levels."""
-    levels = strategy.liq_analyzer.levels
+    levels = getattr(strategy, "liq_analyzer", None).levels
 
     # Only show the top N most-touched levels to avoid clutter
     sorted_levels = sorted(levels, key=lambda l: l.touch_count, reverse=True)[:10]
@@ -365,8 +365,8 @@ def _add_liquidity_overlay(fig, df, strategy):
 
 def _add_premium_discount_overlay(fig, df, strategy):
     """Add equilibrium line and shade premium/discount zones."""
-    sh = strategy.structure.get_last_swing_high()
-    sl = strategy.structure.get_last_swing_low()
+    sh = getattr(strategy, "structure", None).get_last_swing_high()
+    sl = getattr(strategy, "structure", None).get_last_swing_low()
 
     if not sh or not sl:
         return
