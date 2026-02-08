@@ -47,6 +47,16 @@ ASSET_CLASSES = {
         "currency_symbol": "",
         "unit": "lots",
     },
+    "Commodities": {
+        "default_ticker": "GC=F",
+        "presets": {
+            "Metals":      ["GC=F", "SI=F", "HG=F", "PL=F", "PA=F"],
+            "Energy":      ["CL=F", "NG=F", "BZ=F", "HO=F", "RB=F"],
+            "Agriculture": ["ZC=F", "ZW=F", "ZS=F", "KC=F", "CC=F", "SB=F", "CT=F"],
+        },
+        "currency_symbol": "$",
+        "unit": "contracts",
+    },
 }
 
 # ──────────────────────────────────────────────
