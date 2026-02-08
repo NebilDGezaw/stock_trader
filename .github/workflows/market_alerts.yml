@@ -52,9 +52,9 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: >-
           python -m alerts.telegram_bot
-          --tickers MSTU MSTR TSLL SPY AAPL MSFT TSLA GOOGL NVDA META
+          --tickers MSTU MSTR MSTZ TSLL SPY AAPL MSFT TSLA GOOGL NVDA META
           --stock-mode
-          --always-report MSTU MSTR TSLL
+          --always-report MSTU MSTR MSTZ TSLL
           --label "🏛️ US Stocks — NY Open"
           --interval 1d --period 6mo
 
