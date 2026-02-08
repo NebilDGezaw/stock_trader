@@ -18,24 +18,33 @@ for _mod in list(sys.modules.keys()):
     if any(_mod.startswith(p) for p in ["config", "strategies", "utils", "models", "data", "trader", "bt_engine", "backtesting", "alerts"]):
         del sys.modules[_mod]
 
-import config
-
 import streamlit as st
-import pandas as pd
-from datetime import datetime, date, timedelta
 
-from data.fetcher import StockDataFetcher
-from strategies.smc_strategy import SMCStrategy
-from strategies.leveraged_momentum import LeveragedMomentumStrategy
-from strategies.crypto_momentum import CryptoMomentumStrategy
-from strategies.forex_ict import ForexICTStrategy
-from models.signals import TradeAction, MarketBias, SignalType
-from ui.charts import (
-    build_main_chart,
-    build_score_gauge,
-    build_signal_breakdown,
-)
-from bt_engine.engine import BacktestEngine, run_multi
+# Wrap all project imports in try/except so Streamlit Cloud shows
+# the real error instead of an infinite loading spinner.
+try:
+    import config
+    import pandas as pd
+    from datetime import datetime, date, timedelta
+
+    from data.fetcher import StockDataFetcher
+    from strategies.smc_strategy import SMCStrategy
+    from strategies.leveraged_momentum import LeveragedMomentumStrategy
+    from strategies.crypto_momentum import CryptoMomentumStrategy
+    from strategies.forex_ict import ForexICTStrategy
+    from models.signals import TradeAction, MarketBias, SignalType
+    from ui.charts import (
+        build_main_chart,
+        build_score_gauge,
+        build_signal_breakdown,
+    )
+    # bt_engine is imported lazily inside the Backtest section
+    _IMPORT_OK = True
+except Exception as _import_err:
+    _IMPORT_OK = False
+    st.error(f"**Startup import error:** {_import_err}")
+    st.code(str(__import__('traceback').format_exc()))
+    st.stop()
 
 # ──────────────────────────────────────────────────────────
 #  Page Configuration
@@ -1197,6 +1206,7 @@ elif mode == "🧪 Backtest":
     )
 
     if st.button("🚀  Run Backtest", type="primary", use_container_width=True):
+        from bt_engine.engine import BacktestEngine  # lazy import
         progress = st.progress(0, text="Starting backtest...")
         tickers = bt_dw["tickers"]
 
