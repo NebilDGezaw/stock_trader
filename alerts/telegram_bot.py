@@ -154,15 +154,17 @@ def format_alert(setup, strategy) -> str:
     )
 
 
-def format_summary(results: list) -> str:
+def format_summary(results: list, label: str = "") -> str:
     """Format the scan summary header."""
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     actionable = [r for r in results if is_actionable(r["setup"])]
     buys = sum(1 for r in actionable if "BUY" in r["setup"].action.value)
     sells = sum(1 for r in actionable if "SELL" in r["setup"].action.value)
 
+    title = f"📊 <b>{label}</b>" if label else "📊 <b>Stock Trader — Market Scan</b>"
+
     return (
-        f"📊 <b>Stock Trader — Market Scan</b>\n"
+        f"{title}\n"
         f"🕐 {now}\n"
         f"{'─' * 28}\n"
         f"Scanned: <b>{len(results)}</b> tickers\n"
@@ -173,10 +175,11 @@ def format_summary(results: list) -> str:
     )
 
 
-def format_no_signals() -> str:
+def format_no_signals(label: str = "") -> str:
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    title = f"📊 <b>{label}</b>" if label else "📊 <b>Stock Trader — Market Scan</b>"
     return (
-        f"📊 <b>Stock Trader — Market Scan</b>\n"
+        f"{title}\n"
         f"🕐 {now}\n"
         f"{'─' * 28}\n"
         f"🟡 No signals with R:R ≥ 1:{MIN_RISK_REWARD:.0f} found.\n"
@@ -219,6 +222,7 @@ def main():
     parser.add_argument("--all", action="store_true", help="Scan all asset classes")
     parser.add_argument("--period", default="6mo", help="Data period")
     parser.add_argument("--interval", default="1d", help="Candle interval")
+    parser.add_argument("--label", type=str, default="", help="Custom title for the alert header")
     parser.add_argument("--dry-run", action="store_true", help="Print messages without sending")
     args = parser.parse_args()
 
@@ -260,13 +264,14 @@ def main():
     actionable = [r for r in results if is_actionable(r["setup"])]
 
     # Build messages
+    label = args.label
     messages = []
     if actionable:
-        messages.append(format_summary(results))
+        messages.append(format_summary(results, label=label))
         for r in actionable:
             messages.append(format_alert(r["setup"], r["strategy"]))
     else:
-        messages.append(format_no_signals())
+        messages.append(format_no_signals(label=label))
 
     # Send
     full_message = "\n".join(messages)
@@ -276,9 +281,9 @@ def main():
         # Send summary first, then individual alerts
         if args.dry_run:
             print("\n" + "=" * 40)
-            print(format_summary(results).replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", ""))
+            print(format_summary(results, label=label).replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", ""))
         else:
-            send_telegram(token, chat_id, format_summary(results))
+            send_telegram(token, chat_id, format_summary(results, label=label))
 
         for r in actionable:
             msg = format_alert(r["setup"], r["strategy"])

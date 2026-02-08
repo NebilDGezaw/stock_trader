@@ -3,13 +3,13 @@ name: Market Alerts
 on:
   # ── Scheduled sessions ──────────────────────────────────
   schedule:
-    # LONDON SESSION: 8:00 AM London = 08:00 UTC (Mon-Fri)
-    # Scans EUR/USD and GBP/USD
-    - cron: "0 8 * * 1-5"
-
-    # NEW YORK SESSION: 9:30 AM ET = 14:30 UTC (Mon-Fri)
-    # Scans XAU/USD (Gold) and XAG/USD (Silver)
+    # US MARKET OPEN: 9:30 AM ET = 14:30 UTC (Mon-Fri)
+    # Stocks → private DM | Commodities + Crypto → group
     - cron: "30 14 * * 1-5"
+
+    # LONDON SESSION: 8:00 AM UTC (Mon-Fri)
+    # Forex → private DM
+    - cron: "0 8 * * 1-5"
 
   # ── Manual trigger (for testing) ────────────────────────
   workflow_dispatch:
@@ -20,15 +20,74 @@ on:
         default: "all"
         type: choice
         options:
+          - stocks_private
+          - group_commodities_crypto
           - london_forex
-          - ny_metals
-          - stocks
-          - crypto
           - all
 
 jobs:
   # ─────────────────────────────────────────────────────────
-  #  London Session — EUR/USD, GBP/USD
+  #  PRIVATE DM: Stocks (daily at NY open)
+  #  MSTU, MSTR, TSLL always included + top US stocks
+  # ─────────────────────────────────────────────────────────
+  stocks-private:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.schedule == '30 14 * * 1-5' ||
+      github.event.inputs.scan_type == 'stocks_private' ||
+      github.event.inputs.scan_type == 'all'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install yfinance pandas numpy
+
+      - name: "🏛️ Stocks → Private DM"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: >-
+          python -m alerts.telegram_bot
+          --tickers MSTU MSTR TSLL SPY AAPL MSFT TSLA GOOGL NVDA META
+          --label "🏛️ US Stocks — NY Open"
+          --interval 1d --period 6mo
+
+  # ─────────────────────────────────────────────────────────
+  #  GROUP: Commodities + Major Crypto (daily at NY open)
+  #  Gold, Silver + BTC, ETH, SOL, XRP
+  # ─────────────────────────────────────────────────────────
+  group-commodities-crypto:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.schedule == '30 14 * * 1-5' ||
+      github.event.inputs.scan_type == 'group_commodities_crypto' ||
+      github.event.inputs.scan_type == 'all'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install yfinance pandas numpy
+
+      - name: "🥇₿ Commodities + Crypto → Group"
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
+        run: >-
+          python -m alerts.telegram_bot
+          --tickers GC=F SI=F BTC-USD ETH-USD SOL-USD XRP-USD
+          --label "🥇₿ Commodities & Crypto"
+          --interval 1h --period 1mo
+
+  # ─────────────────────────────────────────────────────────
+  #  PRIVATE DM: London Forex (EUR/USD, GBP/USD)
   # ─────────────────────────────────────────────────────────
   london-forex:
     runs-on: ubuntu-latest
@@ -46,81 +105,12 @@ jobs:
           cache: "pip"
       - run: pip install yfinance pandas numpy
 
-      - name: "🇬🇧 London Session — EUR/USD & GBP/USD"
+      - name: "🇬🇧 London Forex → Private DM"
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m alerts.telegram_bot --tickers EURUSD=X GBPUSD=X --interval 1h --period 1mo
-
-  # ─────────────────────────────────────────────────────────
-  #  New York Session — Gold (XAU/USD), Silver (XAG/USD)
-  # ─────────────────────────────────────────────────────────
-  ny-metals:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: >-
-      github.event.schedule == '30 14 * * 1-5' ||
-      github.event.inputs.scan_type == 'ny_metals' ||
-      github.event.inputs.scan_type == 'all'
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-      - run: pip install yfinance pandas numpy
-
-      - name: "🇺🇸 New York Session — Gold & Silver"
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m alerts.telegram_bot --tickers GC=F SI=F --interval 1h --period 1mo
-
-  # ─────────────────────────────────────────────────────────
-  #  Stocks scan (manual only, or part of "all")
-  # ─────────────────────────────────────────────────────────
-  stocks:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: >-
-      github.event.inputs.scan_type == 'stocks' ||
-      github.event.inputs.scan_type == 'all'
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-      - run: pip install yfinance pandas numpy
-
-      - name: "🏛️ US Stocks"
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m alerts.telegram_bot --asset stocks
-
-  # ─────────────────────────────────────────────────────────
-  #  Crypto scan (manual only, or part of "all")
-  # ─────────────────────────────────────────────────────────
-  crypto:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: >-
-      github.event.inputs.scan_type == 'crypto' ||
-      github.event.inputs.scan_type == 'all'
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-      - run: pip install yfinance pandas numpy
-
-      - name: "₿ Crypto"
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m alerts.telegram_bot --asset crypto
+        run: >-
+          python -m alerts.telegram_bot
+          --tickers EURUSD=X GBPUSD=X
+          --label "🇬🇧 London Session — Forex"
+          --interval 1h --period 1mo
