@@ -29,7 +29,14 @@ import config
 from data.fetcher import StockDataFetcher
 from strategies.smc_strategy import SMCStrategy
 from strategies.leveraged_momentum import LeveragedMomentumStrategy
+from strategies.crypto_momentum import CryptoMomentumStrategy
+from strategies.forex_ict import ForexICTStrategy
 from models.signals import TradeAction, MarketBias
+
+# Auto-detect asset class from ticker
+CRYPTO_TICKERS = [t for presets in config.ASSET_CLASSES.get("Crypto", {}).get("presets", {}).values() for t in presets]
+FOREX_TICKERS = [t for presets in config.ASSET_CLASSES.get("Forex", {}).get("presets", {}).values() for t in presets]
+COMMODITY_TICKERS = [t for presets in config.ASSET_CLASSES.get("Commodities", {}).get("presets", {}).values() for t in presets]
 
 
 # ──────────────────────────────────────────────────────────
@@ -77,17 +84,46 @@ BIAS_EMOJI = {
 }
 
 
+def detect_strategy(ticker: str, leveraged: bool = False, crypto: bool = False,
+                    forex: bool = False):
+    """Auto-detect the best strategy for a ticker."""
+    t = ticker.upper()
+    if leveraged or t in config.LEVERAGED_TICKERS:
+        return "leveraged"
+    if crypto or t in CRYPTO_TICKERS or t.endswith("-USD") and not t.startswith("EUR"):
+        return "crypto"
+    if forex or t in FOREX_TICKERS or "=X" in t:
+        return "forex"
+    if t in COMMODITY_TICKERS or "=F" in t:
+        return "commodity"  # uses crypto momentum (works well on gold/silver)
+    return "stocks"
+
+
 def analyze_ticker(ticker: str, period: str = "6mo", interval: str = "1d",
-                   stock_mode: bool = False, leveraged: bool = False):
-    """Run analysis on a single ticker. Returns (strategy, setup) or None."""
+                   stock_mode: bool = False, leveraged: bool = False,
+                   crypto: bool = False, forex: bool = False):
+    """Run analysis on a single ticker with auto-strategy selection."""
     try:
+        strat_type = detect_strategy(ticker, leveraged, crypto, forex)
+
+        # Override interval for forex (1h is optimal)
+        if strat_type == "forex" and interval == "1d":
+            interval = "1h"
+            period = "1mo"  # 1h data is limited
+
         df = StockDataFetcher(ticker).fetch(period=period, interval=interval)
-        # Auto-detect leveraged tickers
-        use_leveraged = leveraged or (ticker.upper() in config.LEVERAGED_TICKERS)
-        if use_leveraged:
+
+        if strat_type == "leveraged":
             strategy = LeveragedMomentumStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
+        elif strat_type == "crypto":
+            strategy = CryptoMomentumStrategy(df, ticker=ticker).run()
+        elif strat_type == "forex":
+            strategy = ForexICTStrategy(df, ticker=ticker).run()
+        elif strat_type == "commodity":
+            strategy = CryptoMomentumStrategy(df, ticker=ticker).run()
         else:
             strategy = SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
+
         return strategy, strategy.trade_setup
     except Exception as e:
         print(f"  [!] Error analyzing {ticker}: {e}")

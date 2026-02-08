@@ -25,7 +25,8 @@ on:
 
 jobs:
   # ─────────────────────────────────────────────────────────
-  #  PRIVATE DM: Stocks only (daily at NY open)
+  #  PRIVATE DM: Stocks + Leveraged ETFs (daily at NY open)
+  #  Auto-selects ICT for stocks, Momentum for leveraged
   # ─────────────────────────────────────────────────────────
   stocks-private:
     runs-on: ubuntu-latest
@@ -43,7 +44,7 @@ jobs:
           cache: "pip"
       - run: pip install yfinance pandas numpy
 
-      - name: "🏛️ Stocks → Private DM"
+      - name: "🏛️ Stocks + Leveraged → Private DM"
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -52,13 +53,13 @@ jobs:
           --tickers MSTU MSTR MSTZ TSLL SPY AAPL MSFT TSLA GOOGL NVDA META
           --stock-mode
           --always-report MSTU MSTR MSTZ TSLL
-          --label "🏛️ US Stocks — NY Open"
+          --label "🏛️ US Stocks & Leveraged — NY Open"
           --interval 1d --period 6mo
 
   # ─────────────────────────────────────────────────────────
   #  GROUP: London Session
-  #  Forex (EUR/USD, GBP/USD, EUR/GBP, GBP/JPY, USD/CHF)
-  #  + Gold & Silver
+  #  Forex (auto-selects Forex ICT on 1h) + Gold & Silver
+  #  (auto-selects Crypto Momentum for commodities)
   # ─────────────────────────────────────────────────────────
   london-group:
     runs-on: ubuntu-latest
@@ -84,12 +85,11 @@ jobs:
           python -m alerts.telegram_bot
           --tickers EURUSD=X GBPUSD=X EURGBP=X GBPJPY=X USDCHF=X GC=F SI=F
           --label "🇬🇧 London Session — Forex & Metals"
-          --interval 1h --period 1mo
 
   # ─────────────────────────────────────────────────────────
   #  GROUP: New York Session
-  #  Crypto (BTC, ETH, SOL, XRP) + Gold & Silver
-  #  + NY Forex (USD/JPY, USD/CAD, USD/CHF, GBP/USD)
+  #  Crypto (auto-selects Crypto Momentum) + Gold & Silver
+  #  + NY Forex (auto-selects Forex ICT on 1h)
   # ─────────────────────────────────────────────────────────
   ny-group:
     runs-on: ubuntu-latest
@@ -113,6 +113,5 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: >-
           python -m alerts.telegram_bot
-          --tickers GC=F SI=F BTC-USD ETH-USD SOL-USD XRP-USD USDJPY=X USDCAD=X USDCHF=X GBPUSD=X
+          --tickers GC=F SI=F BTC-USD ETH-USD SOL-USD XRP-USD BNB-USD USDJPY=X USDCAD=X GBPUSD=X
           --label "🇺🇸 NY Session — Crypto, Metals & Forex"
-          --interval 1h --period 1mo
