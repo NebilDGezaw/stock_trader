@@ -12,6 +12,44 @@ DEFAULT_INTERVAL = "1d"         # candle interval: 1m,5m,15m,1h,1d
 FALLBACK_TICKERS = ["AAPL", "MSFT", "TSLA", "AMZN", "GOOGL"]
 
 # ──────────────────────────────────────────────
+#  Asset Class Presets
+# ──────────────────────────────────────────────
+ASSET_CLASSES = {
+    "Stocks": {
+        "default_ticker": "SPY",
+        "presets": {
+            "US Large Cap": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B"],
+            "US Tech":      ["AAPL", "MSFT", "GOOGL", "META", "NVDA", "AMD", "CRM", "ADBE"],
+            "US Indices":   ["SPY", "QQQ", "DIA", "IWM"],
+            "Sectors":      ["XLF", "XLK", "XLE", "XLV", "XLI", "XLP", "XLU", "XLY"],
+        },
+        "currency_symbol": "$",
+        "unit": "shares",
+    },
+    "Crypto": {
+        "default_ticker": "BTC-USD",
+        "presets": {
+            "Major":       ["BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD", "XRP-USD"],
+            "DeFi":        ["UNI-USD", "AAVE-USD", "MKR-USD", "LINK-USD", "SNX-USD"],
+            "Layer 2":     ["MATIC-USD", "ARB-USD", "OP-USD", "IMX-USD"],
+            "Meme / Alt":  ["DOGE-USD", "SHIB-USD", "PEPE-USD", "AVAX-USD", "ADA-USD"],
+        },
+        "currency_symbol": "$",
+        "unit": "units",
+    },
+    "Forex": {
+        "default_ticker": "EURUSD=X",
+        "presets": {
+            "Majors":    ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "USDCHF=X", "AUDUSD=X", "USDCAD=X", "NZDUSD=X"],
+            "Crosses":   ["EURGBP=X", "EURJPY=X", "GBPJPY=X", "AUDNZD=X", "EURCHF=X", "CADJPY=X"],
+            "Exotics":   ["USDZAR=X", "USDMXN=X", "USDTRY=X", "USDSEK=X", "USDNOK=X"],
+        },
+        "currency_symbol": "",
+        "unit": "lots",
+    },
+}
+
+# ──────────────────────────────────────────────
 #  Market Structure
 # ──────────────────────────────────────────────
 SWING_LOOKBACK = 5              # bars to look left/right for swing detection

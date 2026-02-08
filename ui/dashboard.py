@@ -255,6 +255,30 @@ header { visibility: hidden; }
 #  Helper functions
 # ──────────────────────────────────────────────────────────
 
+# Valid period options per interval (yfinance limits)
+_PERIODS_FOR_INTERVAL = {
+    "1m":  ["1d", "5d", "7d"],
+    "2m":  ["1d", "5d", "7d", "1mo", "60d"],
+    "5m":  ["1d", "5d", "7d", "1mo", "60d"],
+    "15m": ["1d", "5d", "7d", "1mo", "60d"],
+    "30m": ["1d", "5d", "7d", "1mo", "60d"],
+    "1h":  ["1d", "5d", "7d", "1mo", "3mo", "6mo", "1y", "2y"],
+    "1d":  ["1mo", "3mo", "6mo", "1y", "2y", "5y"],
+    "1wk": ["3mo", "6mo", "1y", "2y", "5y"],
+}
+
+_PERIOD_LABELS = {
+    "1d": "1 Day", "5d": "5 Days", "7d": "7 Days",
+    "1mo": "1 Month", "3mo": "3 Months", "6mo": "6 Months", "60d": "60 Days",
+    "1y": "1 Year", "2y": "2 Years", "5y": "5 Years",
+}
+
+_INTERVAL_LABELS = {
+    "1m": "1 min", "5m": "5 min", "15m": "15 min", "30m": "30 min",
+    "1h": "1 hour", "1d": "1 day", "1wk": "1 week",
+}
+
+
 def get_action_class(action: TradeAction) -> str:
     return {
         TradeAction.STRONG_BUY:  "action-strong-buy",
@@ -281,9 +305,21 @@ def signal_icon_html(sig) -> str:
     return '<div class="signal-icon neutral">●</div>'
 
 
+def format_price(price: float, currency_symbol: str = "$") -> str:
+    """Format price with appropriate decimal places."""
+    if price >= 1000:
+        return f"{currency_symbol}{price:,.2f}"
+    elif price >= 1:
+        return f"{currency_symbol}{price:.2f}"
+    elif price >= 0.01:
+        return f"{currency_symbol}{price:.4f}"
+    else:
+        return f"{currency_symbol}{price:.6f}"
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_data(ticker: str, period: str, interval: str):
-    """Cached data fetcher."""
+    """Cached data fetcher — period is auto-clamped inside StockDataFetcher."""
     fetcher = StockDataFetcher(ticker)
     return fetcher.fetch(period=period, interval=interval)
 
@@ -306,6 +342,21 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+    # ── Asset Class ───────────────────────────────────
+    st.markdown('<div class="section-header">Asset Class</div>', unsafe_allow_html=True)
+
+    asset_class_names = list(config.ASSET_CLASSES.keys())
+    asset_class = st.radio(
+        "Asset Class",
+        asset_class_names,
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    ac = config.ASSET_CLASSES[asset_class]
+    currency_sym = ac["currency_symbol"]
+    position_unit = ac["unit"]
+
+    # ── Analysis Mode ─────────────────────────────────
     st.markdown('<div class="section-header">Analysis Mode</div>', unsafe_allow_html=True)
     mode = st.radio(
         "Mode",
@@ -313,41 +364,95 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
+    # ── Ticker Input ──────────────────────────────────
     st.markdown('<div class="section-header">Ticker</div>', unsafe_allow_html=True)
+
+    # Placeholder text per asset class
+    _placeholders = {
+        "Stocks": "e.g. AAPL, SPY, TSLA",
+        "Crypto": "e.g. BTC-USD, ETH-USD",
+        "Forex":  "e.g. EURUSD=X, GBPUSD=X",
+    }
 
     if mode == "Single Ticker":
         ticker = st.text_input(
             "Ticker Symbol",
-            value=config.DEFAULT_TICKER,
+            value=ac["default_ticker"],
             label_visibility="collapsed",
-            placeholder="e.g. AAPL, SPY, TSLA",
+            placeholder=_placeholders.get(asset_class, ""),
         ).upper().strip()
+
+        # Quick-pick preset buttons
+        preset_names = list(ac["presets"].keys())
+        if preset_names:
+            selected_preset = st.selectbox(
+                "Quick pick",
+                ["— Custom —"] + preset_names,
+                label_visibility="collapsed",
+            )
+            if selected_preset != "— Custom —":
+                preset_tickers = ac["presets"][selected_preset]
+                quick_pick = st.selectbox(
+                    "Select ticker",
+                    preset_tickers,
+                    label_visibility="collapsed",
+                )
+                ticker = quick_pick
     else:
-        tickers_input = st.text_input(
-            "Tickers (comma-separated)",
-            value="AAPL, MSFT, TSLA, GOOGL, AMZN, META, NVDA, SPY",
+        # Scanner: let user pick a preset group or type custom
+        preset_names = list(ac["presets"].keys())
+        scanner_source = st.selectbox(
+            "Watchlist",
+            ["Custom"] + preset_names,
             label_visibility="collapsed",
         )
-        tickers_list = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+        if scanner_source == "Custom":
+            default_scan = ", ".join(ac["presets"][preset_names[0]]) if preset_names else ""
+            tickers_input = st.text_input(
+                "Tickers (comma-separated)",
+                value=default_scan,
+                label_visibility="collapsed",
+            )
+            tickers_list = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+        else:
+            tickers_list = ac["presets"][scanner_source]
+            st.markdown(
+                f'<p style="color:#94a3b8; font-size:0.78rem;">'
+                f'{", ".join(tickers_list)}</p>',
+                unsafe_allow_html=True,
+            )
 
+    # ── Timeframe ─────────────────────────────────────
     st.markdown('<div class="section-header">Timeframe</div>', unsafe_allow_html=True)
 
-    col_p, col_i = st.columns(2)
-    with col_p:
-        period = st.selectbox(
-            "Period",
-            ["1mo", "3mo", "6mo", "1y", "2y", "5y"],
-            index=2,
-            label_visibility="collapsed",
-        )
+    all_intervals = ["1m", "5m", "15m", "30m", "1h", "1d", "1wk"]
+    col_i, col_p = st.columns(2)
+
     with col_i:
         interval = st.selectbox(
             "Interval",
-            ["5m", "15m", "1h", "1d", "1wk"],
-            index=3,
+            all_intervals,
+            index=all_intervals.index("1d"),
+            format_func=lambda x: _INTERVAL_LABELS.get(x, x),
             label_visibility="collapsed",
         )
 
+    # Only show valid periods for the chosen interval
+    valid_periods = _PERIODS_FOR_INTERVAL.get(interval, ["1mo", "3mo", "6mo", "1y"])
+    with col_p:
+        period = st.selectbox(
+            "Period",
+            valid_periods,
+            index=min(len(valid_periods) - 1, 2),  # pick a middle default
+            format_func=lambda x: _PERIOD_LABELS.get(x, x),
+            label_visibility="collapsed",
+        )
+
+    # Show a tip for intraday
+    if interval in ("1m", "5m", "15m", "30m"):
+        st.caption(f"Intraday intervals limited to max {valid_periods[-1]} by data provider.")
+
+    # ── Chart Overlays ────────────────────────────────
     st.markdown('<div class="section-header">Chart Overlays</div>', unsafe_allow_html=True)
 
     show_structure = st.toggle("Market Structure", value=True)
@@ -357,6 +462,7 @@ with st.sidebar:
     show_pd = st.toggle("Premium / Discount", value=True)
     show_trade = st.toggle("Trade Levels (SL/TP)", value=True)
 
+    # ── Risk Settings ─────────────────────────────────
     st.markdown('<div class="section-header">Risk Settings</div>', unsafe_allow_html=True)
 
     capital = st.number_input(
@@ -400,13 +506,24 @@ if mode == "Single Ticker":
         change_color = "#22c55e" if price_change >= 0 else "#ef4444"
         change_sign = "+" if price_change >= 0 else ""
 
+        # Asset class badge
+        _ac_badge = {
+            "Stocks": ("🏛️", "Stocks"),
+            "Crypto": ("₿", "Crypto"),
+            "Forex":  ("💱", "Forex"),
+        }
+        ac_icon, ac_label = _ac_badge.get(asset_class, ("📊", asset_class))
+
         st.markdown(
             f'<div style="display:flex; align-items:baseline; gap:16px; margin-bottom:4px;">'
             f'<span style="font-size:2rem; font-weight:800; color:#e2e8f0;">{ticker}</span>'
             f'<span style="font-size:1.8rem; font-weight:700; color:#e2e8f0;">'
-            f'${current_price:.2f}</span>'
+            f'{format_price(current_price, currency_sym)}</span>'
             f'<span style="font-size:1rem; font-weight:600; color:{change_color};">'
             f'{change_sign}{price_change:.2f} ({change_sign}{price_change_pct:.2f}%)</span>'
+            f'<span style="font-size:0.75rem; color:#64748b; background:#1e293b; '
+            f'padding:3px 10px; border-radius:5px; margin-left:4px;">'
+            f'{ac_icon} {ac_label}</span>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -415,7 +532,8 @@ if mode == "Single Ticker":
             f'<span class="bias-badge {get_bias_class(setup.bias)}">'
             f'{setup.bias.value.upper()} BIAS</span>'
             f'<span style="color:#64748b; font-size:0.78rem;">'
-            f'{len(df)} candles &middot; {period} &middot; {interval}</span>'
+            f'{len(df)} candles &middot; {_PERIOD_LABELS.get(period, period)} &middot; '
+            f'{_INTERVAL_LABELS.get(interval, interval)}</span>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -460,11 +578,11 @@ if mode == "Single Ticker":
 
         # Metrics row beneath chart
         m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("Entry", f"${setup.entry_price:.2f}")
-        m2.metric("Stop Loss", f"${setup.stop_loss:.2f}")
-        m3.metric("Take Profit", f"${setup.take_profit:.2f}")
+        m1.metric("Entry", format_price(setup.entry_price, currency_sym))
+        m2.metric("Stop Loss", format_price(setup.stop_loss, currency_sym))
+        m3.metric("Take Profit", format_price(setup.take_profit, currency_sym))
         m4.metric("R : R", f"1 : {setup.risk_reward:.1f}")
-        m5.metric("Position", f"{setup.position_size} shares")
+        m5.metric("Position", f"{setup.position_size} {position_unit}")
         m6.metric("Signals", f"{len(setup.signals)}")
 
     with tab_signals:
@@ -512,25 +630,26 @@ if mode == "Single Ticker":
 
         with col_a:
             # Trade setup details
+            _unit_singular = position_unit.rstrip("s") if position_unit != "lots" else "lot"
             st.markdown(
                 '<div class="info-box">'
                 '<h4>Trade Setup</h4>'
                 f'<div class="info-row"><span class="info-label">Action</span>'
                 f'<span class="info-value">{setup.action.value}</span></div>'
                 f'<div class="info-row"><span class="info-label">Entry Price</span>'
-                f'<span class="info-value">${setup.entry_price:.2f}</span></div>'
+                f'<span class="info-value">{format_price(setup.entry_price, currency_sym)}</span></div>'
                 f'<div class="info-row"><span class="info-label">Stop Loss</span>'
-                f'<span class="info-value">${setup.stop_loss:.2f}</span></div>'
+                f'<span class="info-value">{format_price(setup.stop_loss, currency_sym)}</span></div>'
                 f'<div class="info-row"><span class="info-label">Take Profit</span>'
-                f'<span class="info-value">${setup.take_profit:.2f}</span></div>'
-                f'<div class="info-row"><span class="info-label">Risk per Share</span>'
-                f'<span class="info-value">${setup.risk_per_share:.2f}</span></div>'
-                f'<div class="info-row"><span class="info-label">Reward per Share</span>'
-                f'<span class="info-value">${setup.reward_per_share:.2f}</span></div>'
+                f'<span class="info-value">{format_price(setup.take_profit, currency_sym)}</span></div>'
+                f'<div class="info-row"><span class="info-label">Risk per {_unit_singular.title()}</span>'
+                f'<span class="info-value">{format_price(setup.risk_per_share, currency_sym)}</span></div>'
+                f'<div class="info-row"><span class="info-label">Reward per {_unit_singular.title()}</span>'
+                f'<span class="info-value">{format_price(setup.reward_per_share, currency_sym)}</span></div>'
                 f'<div class="info-row"><span class="info-label">Risk : Reward</span>'
                 f'<span class="info-value">1 : {setup.risk_reward:.1f}</span></div>'
                 f'<div class="info-row"><span class="info-label">Position Size</span>'
-                f'<span class="info-value">{setup.position_size} shares</span></div>'
+                f'<span class="info-value">{setup.position_size} {position_unit}</span></div>'
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -615,12 +734,16 @@ if mode == "Single Ticker":
 
         # Raw data expander
         with st.expander("View Raw OHLCV Data"):
+            # Determine decimal places based on price magnitude
+            _sample = df.iloc[-1]["Close"]
+            _decimals = 2 if _sample >= 1 else (4 if _sample >= 0.01 else 6)
+            _pfmt = f"{currency_sym}{{:.{_decimals}f}}"
             st.dataframe(
                 df.tail(50).style.format({
-                    "Open": "${:.2f}",
-                    "High": "${:.2f}",
-                    "Low": "${:.2f}",
-                    "Close": "${:.2f}",
+                    "Open": _pfmt,
+                    "High": _pfmt,
+                    "Low": _pfmt,
+                    "Close": _pfmt,
                     "Volume": "{:,.0f}",
                 }),
                 use_container_width=True,
@@ -632,11 +755,15 @@ if mode == "Single Ticker":
 # ──────────────────────────────────────────────────────────
 
 elif mode == "Multi-Ticker Scanner":
+    _ac_icon_map = {"Stocks": "🏛️", "Crypto": "₿", "Forex": "💱"}
     st.markdown(
         '<div style="margin-bottom:20px;">'
-        '<span style="font-size:1.8rem; font-weight:800; color:#e2e8f0;">Multi-Ticker Scanner</span>'
+        f'<span style="font-size:1.8rem; font-weight:800; color:#e2e8f0;">'
+        f'{_ac_icon_map.get(asset_class, "📊")} {asset_class} Scanner</span>'
         '<span style="color:#64748b; font-size:0.85rem; margin-left:16px;">'
-        f'{len(tickers_list)} tickers &middot; {period} &middot; {interval}</span>'
+        f'{len(tickers_list)} tickers &middot; '
+        f'{_PERIOD_LABELS.get(period, period)} &middot; '
+        f'{_INTERVAL_LABELS.get(interval, interval)}</span>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -718,9 +845,10 @@ elif mode == "Multi-Ticker Scanner":
                 f'<div><span class="bias-badge {bias_cls}">{s.bias.value.upper()}</span></div>'
                 f'<div class="scanner-score">{s.composite_score}</div>'
                 f'<div class="scanner-details">'
-                f'${current:.2f} '
+                f'{format_price(current, currency_sym)} '
                 f'<span style="color:{chg_color};">{chg_sign}{chg:.2f}%</span>'
-                f' &middot; SL ${s.stop_loss:.2f} &middot; TP ${s.take_profit:.2f}'
+                f' &middot; SL {format_price(s.stop_loss, currency_sym)}'
+                f' &middot; TP {format_price(s.take_profit, currency_sym)}'
                 f' &middot; R:R 1:{s.risk_reward:.1f}'
                 f' &middot; {len(s.signals)} signals'
                 f'</div>'
