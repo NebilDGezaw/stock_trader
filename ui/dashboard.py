@@ -13,8 +13,10 @@ import os
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
-if "config" in sys.modules:
-    del sys.modules["config"]
+# Force-reload config to avoid stale cached module
+for _mod in ["config", "strategies.smc_strategy", "utils.helpers"]:
+    if _mod in sys.modules:
+        del sys.modules[_mod]
 
 import config
 
@@ -25,7 +27,6 @@ from datetime import datetime
 from data.fetcher import StockDataFetcher
 from strategies.smc_strategy import SMCStrategy
 from models.signals import TradeAction, MarketBias, SignalType
-from trader.decision_engine import DecisionEngine
 from ui.charts import (
     build_main_chart,
     build_score_gauge,
@@ -44,7 +45,7 @@ st.set_page_config(
 )
 
 # ──────────────────────────────────────────────────────────
-#  Minimal CSS (no hiding of header/sidebar elements)
+#  CSS
 # ──────────────────────────────────────────────────────────
 
 st.markdown("""
@@ -130,7 +131,7 @@ div[data-testid="stMetric"] label {
 """, unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────────────────
-#  Constants
+#  Constants & Default Watchlists
 # ──────────────────────────────────────────────────────────
 
 PERIODS_FOR_INTERVAL = {
@@ -152,6 +153,30 @@ INTERVAL_LABELS = {
     "1h": "1 hour", "1d": "1 day", "1wk": "1 week",
 }
 AC_ICONS = {"Stocks": "🏛️", "Crypto": "₿", "Forex": "💱", "Commodities": "🛢️"}
+
+# Default watchlists — same tickers the Telegram bot scans daily
+DAILY_WATCHLISTS = {
+    "Stocks": {
+        "tickers": ["MSTU", "MSTR", "MSTZ", "TSLL", "SPY", "AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "META"],
+        "interval": "1d",
+        "period": "6mo",
+    },
+    "Crypto": {
+        "tickers": ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD"],
+        "interval": "1h",
+        "period": "1mo",
+    },
+    "Forex": {
+        "tickers": ["EURUSD=X", "GBPUSD=X", "EURGBP=X", "GBPJPY=X", "USDCHF=X"],
+        "interval": "1h",
+        "period": "1mo",
+    },
+    "Commodities": {
+        "tickers": ["GC=F", "SI=F"],
+        "interval": "1h",
+        "period": "1mo",
+    },
+}
 
 
 # ──────────────────────────────────────────────────────────
@@ -188,7 +213,6 @@ def run_analysis(df, ticker, stock_mode=False):
     return SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
 
 def confidence_badge(signals):
-    """Return a confidence level based on fakeout warning count."""
     warned = sum(1 for s in signals if "⚠" in s.details)
     if warned == 0:
         return '<span style="color:#4ade80;font-weight:600;">🟢 HIGH</span>'
@@ -198,15 +222,103 @@ def confidence_badge(signals):
         return '<span style="color:#f87171;font-weight:600;">🔴 LOW</span>'
 
 def trend_info(signals):
-    """Extract trend momentum info from signals."""
     for s in signals:
         if "Trend momentum" in s.details or "No clear trend" in s.details:
             return s.details
     return None
 
+def action_bg(action_val):
+    return {"action-strong-buy": "background:rgba(16,185,129,0.2);color:#34d399;",
+            "action-buy": "background:rgba(34,197,94,0.2);color:#4ade80;",
+            "action-hold": "background:rgba(234,179,8,0.2);color:#fbbf24;",
+            "action-sell": "background:rgba(239,68,68,0.2);color:#f87171;",
+            "action-strong-sell": "background:rgba(220,38,38,0.2);color:#fca5a5;"
+            }.get(action_val, "")
+
+
+# ──────────────────────────────────────────────────────────
+#  Scanner result renderer (shared by Daily Analysis & Custom Scanner)
+# ──────────────────────────────────────────────────────────
+
+def render_scanner_results(results, currency_sym, show_obs, show_fvgs,
+                           show_liq, show_structure, show_trade, show_pd):
+    """Render scanner results: metrics, rows, and expandable charts."""
+    if not results:
+        st.error("No results. Check your ticker symbols.")
+        return
+
+    results.sort(key=lambda r: abs(r["setup"].composite_score), reverse=True)
+
+    actionable = [r for r in results if r["setup"].action.value in ("STRONG BUY", "BUY", "SELL", "STRONG SELL")]
+    buys = [r for r in actionable if "BUY" in r["setup"].action.value]
+    sells = [r for r in actionable if "SELL" in r["setup"].action.value]
+    holds = [r for r in results if r["setup"].action.value == "HOLD"]
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Scanned", len(results))
+    m2.metric("Actionable", len(actionable))
+    m3.metric("Buy Signals", len(buys))
+    m4.metric("Sell Signals", len(sells))
+
+    st.markdown("")
+
+    for r in results:
+        s = r["setup"]
+        abg = action_bg(action_class(s.action))
+        cur = r["df"].iloc[-1]["Close"]
+        prv = r["df"].iloc[-2]["Close"] if len(r["df"]) > 1 else cur
+        c = ((cur - prv) / prv) * 100
+        cc = "#4ade80" if c >= 0 else "#f87171"
+        cs = "+" if c >= 0 else ""
+        conf = confidence_badge(s.signals)
+
+        st.markdown(
+            f'<div class="scanner-row">'
+            f'<div class="scanner-ticker">{s.ticker}</div>'
+            f'<div class="scanner-action" style="{abg}">{s.action.value}</div>'
+            f'<div><span class="bias-badge {bias_class(s.bias)}">{s.bias.value.upper()}</span></div>'
+            f'<div class="scanner-score">{s.composite_score}</div>'
+            f'<div class="scanner-details">{fmt_price(cur, currency_sym)} '
+            f'<span style="color:{cc};">{cs}{c:.2f}%</span>'
+            f' · SL {fmt_price(s.stop_loss, currency_sym)}'
+            f' · TP {fmt_price(s.take_profit, currency_sym)}'
+            f' · R:R 1:{s.risk_reward:.1f}'
+            f' · {conf}'
+            f' · {len(s.signals)} signals</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    st.subheader("Detailed Charts")
+    for r in results:
+        with st.expander(f"📈 {r['ticker']} — {r['setup'].action.value} (Score: {r['setup'].composite_score})"):
+            ch = build_main_chart(
+                r["df"], r["strategy"],
+                show_order_blocks=show_obs, show_fvgs=show_fvgs,
+                show_liquidity=show_liq, show_structure=show_structure,
+                show_trade_levels=show_trade, show_premium_discount=show_pd,
+                height=480,
+            )
+            st.plotly_chart(ch, use_container_width=True, config={"displayModeBar": True, "displaylogo": False})
+
+
+def run_scan(tickers, period, interval, stock_mode):
+    """Run analysis on a list of tickers and return results."""
+    results = []
+    progress = st.progress(0, text="Scanning tickers...")
+    for i, t in enumerate(tickers):
+        progress.progress((i + 1) / len(tickers), text=f"Analyzing {t}... ({i+1}/{len(tickers)})")
+        try:
+            data = fetch_data(t, period, interval)
+            strat = run_analysis(data, t, stock_mode=stock_mode)
+            results.append({"ticker": t, "setup": strat.trade_setup, "strategy": strat, "df": data})
+        except Exception as e:
+            st.warning(f"Skipped **{t}**: {e}")
+    progress.empty()
+    return results
+
 
 # ══════════════════════════════════════════════════════════
-#  SIDEBAR — all native Streamlit widgets, no custom HTML
+#  SIDEBAR
 # ══════════════════════════════════════════════════════════
 
 with st.sidebar:
@@ -228,19 +340,18 @@ with st.sidebar:
     currency_sym = ac["currency_symbol"]
     position_unit = ac["unit"]
     ac_icon = AC_ICONS.get(asset_class, "📊")
+    use_stock_mode = (asset_class == "Stocks")
 
     # ── Mode ──────────────────────────────────────
     st.subheader("Mode", divider="gray")
     mode = st.radio(
         "Analysis Mode",
-        ["Single Ticker", "Multi-Ticker Scanner"],
+        ["📊 Daily Analysis", "🔍 Search Ticker", "📋 Custom Scanner"],
         label_visibility="collapsed",
         key="mode_selector",
     )
 
-    # ── Ticker ────────────────────────────────────
-    st.subheader("Ticker", divider="gray")
-
+    # ── Mode-specific controls ─────────────────────
     placeholders = {
         "Stocks": "e.g. AAPL, SPY, TSLA",
         "Crypto": "e.g. BTC-USD, ETH-USD",
@@ -248,8 +359,8 @@ with st.sidebar:
         "Commodities": "e.g. GC=F, CL=F, SI=F",
     }
 
-    if mode == "Single Ticker":
-        # Text input for custom ticker
+    if mode == "🔍 Search Ticker":
+        st.subheader("Ticker", divider="gray")
         ticker = st.text_input(
             "Enter ticker symbol",
             value=ac["default_ticker"],
@@ -270,8 +381,9 @@ with st.sidebar:
                 ac["presets"][selected_group],
                 key=f"pick_{asset_class}_{selected_group}",
             )
-    else:
-        # Scanner mode
+
+    elif mode == "📋 Custom Scanner":
+        st.subheader("Tickers", divider="gray")
         preset_names = list(ac["presets"].keys())
         scanner_source = st.selectbox(
             "Watchlist",
@@ -290,29 +402,36 @@ with st.sidebar:
             tickers_list = ac["presets"][scanner_source]
             st.caption(", ".join(tickers_list))
 
-    # ── Timeframe ─────────────────────────────────
-    st.subheader("Timeframe", divider="gray")
+    # Daily Analysis just shows the watchlist
+    if mode == "📊 Daily Analysis":
+        dw = DAILY_WATCHLISTS[asset_class]
+        st.subheader("Watchlist", divider="gray")
+        st.caption(", ".join(dw["tickers"]))
+        st.info(f"Interval: **{INTERVAL_LABELS.get(dw['interval'], dw['interval'])}** · Period: **{PERIOD_LABELS.get(dw['period'], dw['period'])}**", icon="⏱️")
+        if use_stock_mode:
+            st.info("**Stock Mode** active — medium risk, ATR stops, trend momentum", icon="🏛️")
 
-    all_intervals = ["1m", "5m", "15m", "30m", "1h", "1d", "1wk"]
-    interval = st.selectbox(
-        "Interval",
-        all_intervals,
-        index=5,  # default "1d"
-        format_func=lambda x: INTERVAL_LABELS.get(x, x),
-        key="interval_sel",
-    )
-
-    valid_periods = PERIODS_FOR_INTERVAL.get(interval, ["1mo", "3mo", "6mo", "1y"])
-    period = st.selectbox(
-        "Period",
-        valid_periods,
-        index=min(len(valid_periods) - 1, 2),
-        format_func=lambda x: PERIOD_LABELS.get(x, x),
-        key=f"period_sel_{interval}",
-    )
-
-    if interval in ("1m", "5m", "15m", "30m"):
-        st.info(f"⏱️ Max lookback: **{PERIOD_LABELS.get(valid_periods[-1], valid_periods[-1])}** for {INTERVAL_LABELS[interval]} candles.", icon="ℹ️")
+    # ── Timeframe (only for Search & Custom) ──────
+    if mode in ("🔍 Search Ticker", "📋 Custom Scanner"):
+        st.subheader("Timeframe", divider="gray")
+        all_intervals = ["1m", "5m", "15m", "30m", "1h", "1d", "1wk"]
+        interval = st.selectbox(
+            "Interval",
+            all_intervals,
+            index=5,
+            format_func=lambda x: INTERVAL_LABELS.get(x, x),
+            key="interval_sel",
+        )
+        valid_periods = PERIODS_FOR_INTERVAL.get(interval, ["1mo", "3mo", "6mo", "1y"])
+        period = st.selectbox(
+            "Period",
+            valid_periods,
+            index=min(len(valid_periods) - 1, 2),
+            format_func=lambda x: PERIOD_LABELS.get(x, x),
+            key=f"period_sel_{interval}",
+        )
+        if interval in ("1m", "5m", "15m", "30m"):
+            st.info(f"⏱️ Max: **{PERIOD_LABELS.get(valid_periods[-1], valid_periods[-1])}** for {INTERVAL_LABELS[interval]} candles.", icon="ℹ️")
 
     # ── Chart Overlays ────────────────────────────
     st.subheader("Overlays", divider="gray")
@@ -333,13 +452,44 @@ with st.sidebar:
 
 
 # ══════════════════════════════════════════════════════════
-#  MAIN CONTENT — Single Ticker
+#  MAIN CONTENT — Daily Analysis
 # ══════════════════════════════════════════════════════════
 
-if mode == "Single Ticker":
-    # Auto-enable stock mode for Stocks asset class
-    use_stock_mode = (asset_class == "Stocks")
+if mode == "📊 Daily Analysis":
+    dw = DAILY_WATCHLISTS[asset_class]
 
+    st.markdown(
+        f'<div style="margin-bottom:20px;">'
+        f'<span style="font-size:1.8rem;font-weight:800;color:#e2e8f0;">'
+        f'{ac_icon} {asset_class} — Daily Analysis</span>'
+        f'<span style="color:#64748b;font-size:0.85rem;margin-left:16px;">'
+        f'{len(dw["tickers"])} tickers · {PERIOD_LABELS.get(dw["period"], dw["period"])} · '
+        f'{INTERVAL_LABELS.get(dw["interval"], dw["interval"])}</span>'
+        + (' <span style="font-size:0.65rem;color:#a78bfa;background:rgba(167,139,250,0.15);padding:2px 8px;border-radius:4px;margin-left:8px;">STOCK MODE</span>' if use_stock_mode else '')
+        + '</div>',
+        unsafe_allow_html=True,
+    )
+
+    if st.button(f"🚀  Run {asset_class} Daily Analysis", type="primary", use_container_width=True):
+        results = run_scan(dw["tickers"], dw["period"], dw["interval"], stock_mode=use_stock_mode)
+        render_scanner_results(results, currency_sym, show_obs, show_fvgs,
+                               show_liq, show_structure, show_trade, show_pd)
+    else:
+        st.markdown(
+            f'<div style="text-align:center;padding:60px 20px;color:#64748b;">'
+            f'<div style="font-size:3rem;margin-bottom:16px;">{ac_icon}</div>'
+            f'<div style="font-size:1.2rem;font-weight:600;color:#94a3b8;">Click the button above to scan</div>'
+            f'<div style="font-size:0.85rem;margin-top:8px;">'
+            f'{", ".join(dw["tickers"])}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+
+# ══════════════════════════════════════════════════════════
+#  MAIN CONTENT — Search Ticker
+# ══════════════════════════════════════════════════════════
+
+elif mode == "🔍 Search Ticker":
     try:
         with st.spinner(f"Fetching {ticker} data..."):
             df = fetch_data(ticker, period, interval)
@@ -371,7 +521,6 @@ if mode == "Single Ticker":
             unsafe_allow_html=True,
         )
 
-        # Confidence + trend info row
         conf = confidence_badge(setup.signals)
         trend = trend_info(setup.signals)
         trend_html = f'<span style="color:#94a3b8;font-size:0.78rem;margin-left:12px;">{trend}</span>' if trend else ""
@@ -468,8 +617,6 @@ if mode == "Single Ticker":
                         ("Entry Price", fmt_price(setup.entry_price, currency_sym)),
                         ("Stop Loss", fmt_price(setup.stop_loss, currency_sym)),
                         ("Take Profit", fmt_price(setup.take_profit, currency_sym)),
-                        (f"Risk per {_u.title()}", fmt_price(setup.risk_per_share, currency_sym)),
-                        (f"Reward per {_u.title()}", fmt_price(setup.reward_per_share, currency_sym)),
                         ("Risk : Reward", f"1 : {setup.risk_reward:.1f}"),
                         ("Position Size", f"{setup.position_size} {position_unit}"),
                     ]
@@ -546,10 +693,10 @@ if mode == "Single Ticker":
 
 
 # ══════════════════════════════════════════════════════════
-#  MAIN CONTENT — Multi-Ticker Scanner
+#  MAIN CONTENT — Custom Scanner
 # ══════════════════════════════════════════════════════════
 
-elif mode == "Multi-Ticker Scanner":
+elif mode == "📋 Custom Scanner":
     st.markdown(
         f'<div style="margin-bottom:20px;">'
         f'<span style="font-size:1.8rem;font-weight:800;color:#e2e8f0;">'
@@ -560,80 +707,7 @@ elif mode == "Multi-Ticker Scanner":
         unsafe_allow_html=True,
     )
 
-    use_stock_mode_scan = (asset_class == "Stocks")
-
     if st.button("🔍  Run Scanner", type="primary", use_container_width=True):
-        results = []
-        progress = st.progress(0, text="Scanning tickers...")
-
-        for i, t in enumerate(tickers_list):
-            progress.progress((i + 1) / len(tickers_list), text=f"Analyzing {t}... ({i+1}/{len(tickers_list)})")
-            try:
-                data = fetch_data(t, period, interval)
-                strat = run_analysis(data, t, stock_mode=use_stock_mode_scan)
-                results.append({"ticker": t, "setup": strat.trade_setup, "strategy": strat, "df": data})
-            except Exception as e:
-                st.warning(f"Skipped **{t}**: {e}")
-
-        progress.empty()
-
-        if not results:
-            st.error("No results. Check your ticker symbols.")
-            st.stop()
-
-        results.sort(key=lambda r: abs(r["setup"].composite_score), reverse=True)
-
-        actionable = [r for r in results if r["setup"].action.value in ("STRONG BUY", "BUY", "SELL", "STRONG SELL")]
-        buys = [r for r in actionable if "BUY" in r["setup"].action.value]
-        sells = [r for r in actionable if "SELL" in r["setup"].action.value]
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Scanned", len(results))
-        m2.metric("Actionable", len(actionable))
-        m3.metric("Buy Signals", len(buys))
-        m4.metric("Sell Signals", len(sells))
-
-        st.markdown("")
-
-        for r in results:
-            s = r["setup"]
-            abg = {"action-strong-buy": "background:rgba(16,185,129,0.2);color:#34d399;",
-                   "action-buy": "background:rgba(34,197,94,0.2);color:#4ade80;",
-                   "action-hold": "background:rgba(234,179,8,0.2);color:#fbbf24;",
-                   "action-sell": "background:rgba(239,68,68,0.2);color:#f87171;",
-                   "action-strong-sell": "background:rgba(220,38,38,0.2);color:#fca5a5;"}.get(action_class(s.action), "")
-
-            cur = r["df"].iloc[-1]["Close"]
-            prv = r["df"].iloc[-2]["Close"] if len(r["df"]) > 1 else cur
-            c = ((cur - prv) / prv) * 100
-            cc = "#4ade80" if c >= 0 else "#f87171"
-            cs = "+" if c >= 0 else ""
-            conf = confidence_badge(s.signals)
-
-            st.markdown(
-                f'<div class="scanner-row">'
-                f'<div class="scanner-ticker">{s.ticker}</div>'
-                f'<div class="scanner-action" style="{abg}">{s.action.value}</div>'
-                f'<div><span class="bias-badge {bias_class(s.bias)}">{s.bias.value.upper()}</span></div>'
-                f'<div class="scanner-score">{s.composite_score}</div>'
-                f'<div class="scanner-details">{fmt_price(cur, currency_sym)} '
-                f'<span style="color:{cc};">{cs}{c:.2f}%</span>'
-                f' · SL {fmt_price(s.stop_loss, currency_sym)}'
-                f' · TP {fmt_price(s.take_profit, currency_sym)}'
-                f' · R:R 1:{s.risk_reward:.1f}'
-                f' · {conf}'
-                f' · {len(s.signals)} signals</div></div>',
-                unsafe_allow_html=True,
-            )
-
-        st.subheader("Detailed Charts")
-        for r in results:
-            with st.expander(f"📈 {r['ticker']} — {r['setup'].action.value} (Score: {r['setup'].composite_score})"):
-                ch = build_main_chart(
-                    r["df"], r["strategy"],
-                    show_order_blocks=show_obs, show_fvgs=show_fvgs,
-                    show_liquidity=show_liq, show_structure=show_structure,
-                    show_trade_levels=show_trade, show_premium_discount=show_pd,
-                    height=480,
-                )
-                st.plotly_chart(ch, use_container_width=True, config={"displayModeBar": True, "displaylogo": False})
+        results = run_scan(tickers_list, period, interval, stock_mode=use_stock_mode)
+        render_scanner_results(results, currency_sym, show_obs, show_fvgs,
+                               show_liq, show_structure, show_trade, show_pd)
