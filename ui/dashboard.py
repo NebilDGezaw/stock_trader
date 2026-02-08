@@ -194,8 +194,8 @@ div[data-testid="stMetric"] label {
 
 /* ═══════════ Mobile Responsive ═══════════ */
 
-/* Tablets (≤ 900px) */
-@media (max-width: 900px) {
+/* Tablets (≤ 1024px) */
+@media (max-width: 1024px) {
     .scanner-row {
         grid-template-columns: 70px 100px 90px 60px 1fr;
         padding: 10px 12px;
@@ -203,30 +203,38 @@ div[data-testid="stMetric"] label {
     }
     .scanner-ticker { font-size: 0.95rem; }
     .scanner-details { font-size: 0.72rem; }
+    .page-header-title { font-size: 1.4rem !important; }
 }
 
-/* Phones (≤ 640px) */
-@media (max-width: 640px) {
-    /* Main container: reduce padding */
+/* Phones (≤ 768px) — catches most phones */
+@media (max-width: 768px) {
+    /* Push content below Streamlit's sticky header bar (~3.5rem) */
     .block-container {
-        padding-left: 0.5rem !important;
-        padding-right: 0.5rem !important;
-        padding-top: 0.5rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+        padding-top: 3.5rem !important;
+        max-width: 100% !important;
+    }
+
+    /* Hide the Fork / GitHub / menu bar on mobile — reclaim space */
+    [data-testid="stHeader"] {
+        background: #0a0e17 !important;
     }
 
     /* Header text: scale down */
-    .stApp h1 { font-size: 1.3rem !important; }
-    .stApp h2 { font-size: 1.1rem !important; }
-    .stApp h3 { font-size: 1rem !important; }
+    .stApp h1 { font-size: 1.2rem !important; }
+    .stApp h2 { font-size: 1rem !important; }
+    .stApp h3 { font-size: 0.9rem !important; }
 
     /* Page headers: wrap and shrink */
     .page-header {
-        gap: 4px 10px;
-        margin-bottom: 12px;
+        gap: 4px 8px;
+        margin-bottom: 10px;
     }
     .page-header-title {
-        font-size: 1.15rem !important;
+        font-size: 1.2rem !important;
         width: 100%;
+        line-height: 1.3;
     }
     .page-header-meta {
         font-size: 0.72rem;
@@ -238,22 +246,20 @@ div[data-testid="stMetric"] label {
     }
 
     /* Ticker header: wrap and shrink */
-    .ticker-header {
-        gap: 4px 8px;
-    }
-    .ticker-symbol { font-size: 1.4rem !important; }
-    .ticker-price { font-size: 1.2rem !important; }
+    .ticker-header { gap: 4px 8px; }
+    .ticker-symbol { font-size: 1.35rem !important; }
+    .ticker-price { font-size: 1.15rem !important; }
     .ticker-change { font-size: 0.8rem !important; }
     .ticker-badge { font-size: 0.65rem; padding: 2px 8px; }
 
     .ticker-info-row { gap: 6px; }
-    .ticker-info-row span { font-size: 0.68rem !important; }
+    .ticker-info-row span { font-size: 0.7rem !important; }
 
-    /* Landing: tighter */
-    .landing-box { padding: 30px 12px; }
-    .landing-icon { font-size: 2rem; }
-    .landing-title { font-size: 1rem; }
-    .landing-sub { font-size: 0.75rem; }
+    /* Landing: compact */
+    .landing-box { padding: 24px 12px; }
+    .landing-icon { font-size: 2.2rem; margin-bottom: 10px; }
+    .landing-title { font-size: 0.95rem; }
+    .landing-sub { font-size: 0.75rem; line-height: 1.5; }
 
     /* Metric cards: compact */
     div[data-testid="stMetric"] {
@@ -265,15 +271,15 @@ div[data-testid="stMetric"] label {
         letter-spacing: 0;
     }
     div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-        font-size: 0.95rem !important;
+        font-size: 0.9rem !important;
     }
 
-    /* Scanner rows: stack vertically on phones */
+    /* Scanner rows: 2-col card layout on phones */
     .scanner-row {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr auto;
         grid-template-rows: auto auto auto;
         padding: 12px;
-        gap: 6px 10px;
+        gap: 4px 10px;
     }
     .scanner-ticker {
         font-size: 0.95rem;
@@ -312,8 +318,7 @@ div[data-testid="stMetric"] label {
         gap: 8px;
     }
     .signal-icon {
-        width: 28px;
-        height: 28px;
+        width: 28px; height: 28px;
         font-size: 0.85rem;
     }
     .signal-type { font-size: 0.68rem; }
@@ -321,73 +326,69 @@ div[data-testid="stMetric"] label {
     .signal-score { font-size: 0.72rem; padding: 3px 8px; }
 
     /* Info boxes: tighter */
-    .info-box {
-        padding: 12px;
-        border-radius: 8px;
-    }
+    .info-box { padding: 12px; border-radius: 8px; }
     .info-row { font-size: 0.72rem; padding: 4px 0; }
     .info-box h4 { font-size: 0.78rem; }
 
-    /* Bias badge: smaller */
-    .bias-badge {
-        padding: 3px 10px;
-        font-size: 0.7rem;
-    }
+    /* Bias badge */
+    .bias-badge { padding: 3px 10px; font-size: 0.7rem; }
 
-    /* Tabs: smaller text */
+    /* Tabs: smaller */
     .stTabs [data-baseweb="tab"] {
         font-size: 0.75rem !important;
         padding: 6px 10px !important;
     }
 
     /* Tables: horizontal scroll */
-    .stDataFrame {
-        overflow-x: auto !important;
-    }
+    .stDataFrame { overflow-x: auto !important; }
     .stDataFrame table { font-size: 0.72rem !important; }
 
-    /* Plotly charts: reduced height */
-    .js-plotly-plot {
-        min-height: 220px;
-    }
+    /* Charts */
+    .js-plotly-plot { min-height: 220px; }
 
-    /* Expanders: tighter */
+    /* Expanders */
     details[data-testid="stExpander"] summary {
         font-size: 0.8rem !important;
+    }
+
+    /* Keep Streamlit columns side-by-side on mobile for buttons */
+    [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 0.5rem !important;
     }
 }
 
 /* Very small phones (≤ 400px) */
 @media (max-width: 400px) {
     .block-container {
-        padding-left: 0.25rem !important;
-        padding-right: 0.25rem !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+        padding-top: 3rem !important;
     }
-    .page-header-title {
-        font-size: 1rem !important;
-    }
-    .page-header-meta {
-        font-size: 0.65rem;
-    }
-    .ticker-symbol { font-size: 1.2rem !important; }
-    .ticker-price { font-size: 1rem !important; }
-    .ticker-change { font-size: 0.72rem !important; }
+    .page-header-title { font-size: 1.05rem !important; }
+    .page-header-meta { font-size: 0.65rem; }
+    .ticker-symbol { font-size: 1.15rem !important; }
+    .ticker-price { font-size: 0.95rem !important; }
+    .ticker-change { font-size: 0.7rem !important; }
 
     .scanner-row {
         grid-template-columns: 1fr;
         grid-template-rows: auto;
+        padding: 10px;
     }
     .scanner-ticker { grid-column: 1; }
     .scanner-action { grid-column: 1; justify-self: start; }
     .scanner-score { grid-column: 1; }
     .scanner-details { grid-column: 1; }
 
-    div[data-testid="stMetric"] {
-        padding: 8px 10px;
-    }
+    div[data-testid="stMetric"] { padding: 8px 10px; }
     div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-        font-size: 0.85rem !important;
+        font-size: 0.8rem !important;
     }
+    .landing-box { padding: 16px 8px; }
+    .landing-icon { font-size: 1.8rem; }
+    .landing-title { font-size: 0.85rem; }
+    .landing-sub { font-size: 0.7rem; }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -850,11 +851,11 @@ if mode == "📊 Daily Analysis":
         unsafe_allow_html=True,
     )
 
-    btn_col, home_col = st.columns([3, 1])
-    with btn_col:
+    col_run, col_home = st.columns([4, 1], gap="small")
+    with col_run:
         run_clicked = st.button("🚀  Run Analysis", type="primary", use_container_width=True)
-    with home_col:
-        home_clicked = st.button("🏠 Home", use_container_width=True)
+    with col_home:
+        home_clicked = st.button("🏠", use_container_width=True, help="Back to home")
 
     if home_clicked:
         st.session_state.scan_results = None
