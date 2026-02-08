@@ -588,14 +588,17 @@ def render_scanner_results(results, currency_sym, show_obs, show_fvgs,
     st.subheader("Detailed Charts")
     for r in results:
         with st.expander(f"📈 {r['ticker']} — {r['setup'].action.value} (Score: {r['setup'].composite_score})"):
-            ch = build_main_chart(
-                r["df"], r["strategy"],
-                show_order_blocks=show_obs, show_fvgs=show_fvgs,
-                show_liquidity=show_liq, show_structure=show_structure,
-                show_trade_levels=show_trade, show_premium_discount=show_pd,
-                height=480,
-            )
-            st.plotly_chart(ch, use_container_width=True, config={"displayModeBar": True, "displaylogo": False})
+            try:
+                ch = build_main_chart(
+                    r["df"], r["strategy"],
+                    show_order_blocks=show_obs, show_fvgs=show_fvgs,
+                    show_liquidity=show_liq, show_structure=show_structure,
+                    show_trade_levels=show_trade, show_premium_discount=show_pd,
+                    height=480,
+                )
+                st.plotly_chart(ch, use_container_width=True, config={"displayModeBar": True, "displaylogo": False})
+            except Exception as e:
+                st.warning(f"Chart error for {r['ticker']}: {e}")
 
 
 def run_scan(tickers, period, interval, stock_mode):

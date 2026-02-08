@@ -104,23 +104,43 @@ def build_main_chart(
     )
 
     # ── Overlays (safe for non-ICT strategies) ─────────────
-    if show_structure and getattr(strategy, 'structure', None):
-        _add_structure_overlay(fig, df, strategy)
+    # Wrap each overlay in try/except so non-ICT strategies
+    # (LeveragedMomentum, CryptoMomentum) don't crash the chart.
+    try:
+        if show_structure and getattr(strategy, 'structure', None):
+            _add_structure_overlay(fig, df, strategy)
+    except Exception:
+        pass
 
-    if show_order_blocks and getattr(strategy, 'ob_detector', None):
-        _add_order_block_overlay(fig, df, strategy)
+    try:
+        if show_order_blocks and getattr(strategy, 'ob_detector', None):
+            _add_order_block_overlay(fig, df, strategy)
+    except Exception:
+        pass
 
-    if show_fvgs and getattr(strategy, 'fvg_detector', None):
-        _add_fvg_overlay(fig, df, strategy)
+    try:
+        if show_fvgs and getattr(strategy, 'fvg_detector', None):
+            _add_fvg_overlay(fig, df, strategy)
+    except Exception:
+        pass
 
-    if show_liquidity and getattr(strategy, 'liq_analyzer', None):
-        _add_liquidity_overlay(fig, df, strategy)
+    try:
+        if show_liquidity and getattr(strategy, 'liq_analyzer', None):
+            _add_liquidity_overlay(fig, df, strategy)
+    except Exception:
+        pass
 
-    if show_premium_discount and getattr(strategy, 'structure', None):
-        _add_premium_discount_overlay(fig, df, strategy)
+    try:
+        if show_premium_discount and getattr(strategy, 'structure', None):
+            _add_premium_discount_overlay(fig, df, strategy)
+    except Exception:
+        pass
 
-    if show_trade_levels and getattr(strategy, 'trade_setup', None):
-        _add_trade_levels(fig, df, strategy)
+    try:
+        if show_trade_levels and getattr(strategy, 'trade_setup', None):
+            _add_trade_levels(fig, df, strategy)
+    except Exception:
+        pass
 
     # ── Layout ────────────────────────────────────────────
     fig.update_layout(
