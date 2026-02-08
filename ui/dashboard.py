@@ -130,6 +130,68 @@ div[data-testid="stMetric"] label {
 .scanner-score { font-size: 0.95rem; font-weight: 600; color: #e2e8f0; text-align: center; }
 .scanner-details { font-size: 0.78rem; color: #94a3b8; }
 
+/* Page headers */
+.page-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 16px;
+    margin-bottom: 20px;
+}
+.page-header-title {
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: #e2e8f0;
+    line-height: 1.2;
+    word-break: break-word;
+}
+.page-header-meta {
+    color: #64748b;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+.page-header-tag {
+    font-size: 0.65rem;
+    color: #a78bfa;
+    background: rgba(167,139,250,0.15);
+    padding: 2px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+/* Ticker header (Search Ticker mode) */
+.ticker-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 12px;
+    margin-bottom: 4px;
+}
+.ticker-symbol { font-size: 2rem; font-weight: 800; color: #e2e8f0; }
+.ticker-price { font-size: 1.8rem; font-weight: 700; color: #e2e8f0; }
+.ticker-change { font-size: 1rem; font-weight: 600; }
+.ticker-badge {
+    font-size: 0.75rem; color: #64748b; background: #1e293b;
+    padding: 3px 10px; border-radius: 5px; white-space: nowrap;
+}
+.ticker-info-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+.ticker-info-row span { white-space: nowrap; }
+
+/* Landing page */
+.landing-box {
+    text-align: center;
+    padding: 60px 20px;
+    color: #64748b;
+}
+.landing-icon { font-size: 3rem; margin-bottom: 16px; }
+.landing-title { font-size: 1.2rem; font-weight: 600; color: #94a3b8; }
+.landing-sub { font-size: 0.85rem; margin-top: 8px; }
+
 /* ═══════════ Mobile Responsive ═══════════ */
 
 /* Tablets (≤ 900px) */
@@ -149,7 +211,7 @@ div[data-testid="stMetric"] label {
     .block-container {
         padding-left: 0.5rem !important;
         padding-right: 0.5rem !important;
-        padding-top: 1rem !important;
+        padding-top: 0.5rem !important;
     }
 
     /* Header text: scale down */
@@ -157,16 +219,53 @@ div[data-testid="stMetric"] label {
     .stApp h2 { font-size: 1.1rem !important; }
     .stApp h3 { font-size: 1rem !important; }
 
+    /* Page headers: wrap and shrink */
+    .page-header {
+        gap: 4px 10px;
+        margin-bottom: 12px;
+    }
+    .page-header-title {
+        font-size: 1.15rem !important;
+        width: 100%;
+    }
+    .page-header-meta {
+        font-size: 0.72rem;
+        white-space: normal;
+        width: 100%;
+    }
+    .page-header-tag {
+        font-size: 0.6rem;
+    }
+
+    /* Ticker header: wrap and shrink */
+    .ticker-header {
+        gap: 4px 8px;
+    }
+    .ticker-symbol { font-size: 1.4rem !important; }
+    .ticker-price { font-size: 1.2rem !important; }
+    .ticker-change { font-size: 0.8rem !important; }
+    .ticker-badge { font-size: 0.65rem; padding: 2px 8px; }
+
+    .ticker-info-row { gap: 6px; }
+    .ticker-info-row span { font-size: 0.68rem !important; }
+
+    /* Landing: tighter */
+    .landing-box { padding: 30px 12px; }
+    .landing-icon { font-size: 2rem; }
+    .landing-title { font-size: 1rem; }
+    .landing-sub { font-size: 0.75rem; }
+
     /* Metric cards: compact */
     div[data-testid="stMetric"] {
         padding: 10px 12px;
         border-radius: 8px;
     }
     div[data-testid="stMetric"] label {
-        font-size: 0.65rem !important;
+        font-size: 0.6rem !important;
+        letter-spacing: 0;
     }
     div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-        font-size: 1rem !important;
+        font-size: 0.95rem !important;
     }
 
     /* Scanner rows: stack vertically on phones */
@@ -177,7 +276,7 @@ div[data-testid="stMetric"] label {
         gap: 6px 10px;
     }
     .scanner-ticker {
-        font-size: 1rem;
+        font-size: 0.95rem;
         grid-column: 1;
         grid-row: 1;
     }
@@ -185,24 +284,26 @@ div[data-testid="stMetric"] label {
         grid-column: 2;
         grid-row: 1;
         justify-self: end;
+        font-size: 0.72rem;
     }
     .scanner-score {
         grid-column: 1;
         grid-row: 2;
         text-align: left;
-        font-size: 0.85rem;
+        font-size: 0.8rem;
     }
     .scanner-details {
         grid-column: 1 / -1;
         grid-row: 3;
-        font-size: 0.72rem;
+        font-size: 0.68rem;
         word-break: break-word;
+        line-height: 1.4;
     }
 
     /* Action badge: smaller */
     .action-badge {
-        padding: 6px 16px;
-        font-size: 1rem;
+        padding: 5px 14px;
+        font-size: 0.95rem;
     }
 
     /* Signal cards: tighter */
@@ -211,42 +312,48 @@ div[data-testid="stMetric"] label {
         gap: 8px;
     }
     .signal-icon {
-        width: 30px;
-        height: 30px;
-        font-size: 0.9rem;
+        width: 28px;
+        height: 28px;
+        font-size: 0.85rem;
     }
-    .signal-type { font-size: 0.7rem; }
-    .signal-detail { font-size: 0.68rem; }
-    .signal-score { font-size: 0.75rem; padding: 3px 8px; }
+    .signal-type { font-size: 0.68rem; }
+    .signal-detail { font-size: 0.65rem; }
+    .signal-score { font-size: 0.72rem; padding: 3px 8px; }
 
     /* Info boxes: tighter */
     .info-box {
-        padding: 14px;
+        padding: 12px;
         border-radius: 8px;
     }
-    .info-row { font-size: 0.75rem; padding: 5px 0; }
-    .info-box h4 { font-size: 0.8rem; }
+    .info-row { font-size: 0.72rem; padding: 4px 0; }
+    .info-box h4 { font-size: 0.78rem; }
 
     /* Bias badge: smaller */
     .bias-badge {
         padding: 3px 10px;
-        font-size: 0.75rem;
+        font-size: 0.7rem;
     }
 
     /* Tabs: smaller text */
     .stTabs [data-baseweb="tab"] {
-        font-size: 0.8rem !important;
-        padding: 8px 12px !important;
+        font-size: 0.75rem !important;
+        padding: 6px 10px !important;
     }
 
     /* Tables: horizontal scroll */
     .stDataFrame {
         overflow-x: auto !important;
     }
+    .stDataFrame table { font-size: 0.72rem !important; }
 
-    /* Plotly charts: minimum height */
+    /* Plotly charts: reduced height */
     .js-plotly-plot {
-        min-height: 250px;
+        min-height: 220px;
+    }
+
+    /* Expanders: tighter */
+    details[data-testid="stExpander"] summary {
+        font-size: 0.8rem !important;
     }
 }
 
@@ -256,6 +363,16 @@ div[data-testid="stMetric"] label {
         padding-left: 0.25rem !important;
         padding-right: 0.25rem !important;
     }
+    .page-header-title {
+        font-size: 1rem !important;
+    }
+    .page-header-meta {
+        font-size: 0.65rem;
+    }
+    .ticker-symbol { font-size: 1.2rem !important; }
+    .ticker-price { font-size: 1rem !important; }
+    .ticker-change { font-size: 0.72rem !important; }
+
     .scanner-row {
         grid-template-columns: 1fr;
         grid-template-rows: auto;
@@ -267,6 +384,9 @@ div[data-testid="stMetric"] label {
 
     div[data-testid="stMetric"] {
         padding: 8px 10px;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+        font-size: 0.85rem !important;
     }
 }
 </style>
@@ -720,13 +840,12 @@ if mode == "📊 Daily Analysis":
     eff_period = da_period
 
     st.markdown(
-        f'<div style="margin-bottom:20px;">'
-        f'<span style="font-size:1.8rem;font-weight:800;color:#e2e8f0;">'
-        f'{selected_session}</span>'
-        f'<span style="color:#64748b;font-size:0.85rem;margin-left:16px;">'
+        f'<div class="page-header">'
+        f'<span class="page-header-title">{selected_session}</span>'
+        f'<span class="page-header-meta">'
         f'{len(dw["tickers"])} tickers · {PERIOD_LABELS.get(eff_period, eff_period)} · '
         f'{INTERVAL_LABELS.get(eff_interval, eff_interval)}</span>'
-        + (' <span style="font-size:0.65rem;color:#a78bfa;background:rgba(167,139,250,0.15);padding:2px 8px;border-radius:4px;margin-left:8px;">STOCK MODE</span>' if session_stock_mode else '')
+        + (' <span class="page-header-tag">STOCK MODE</span>' if session_stock_mode else '')
         + '</div>',
         unsafe_allow_html=True,
     )
@@ -753,11 +872,10 @@ if mode == "📊 Daily Analysis":
                                show_fvgs, show_liq, show_structure, show_trade, show_pd)
     else:
         st.markdown(
-            f'<div style="text-align:center;padding:60px 20px;color:#64748b;">'
-            f'<div style="font-size:3rem;margin-bottom:16px;">{session_icon}</div>'
-            f'<div style="font-size:1.2rem;font-weight:600;color:#94a3b8;">Select a session and click Run Analysis</div>'
-            f'<div style="font-size:0.85rem;margin-top:8px;">'
-            f'{", ".join(dw["tickers"])}</div></div>',
+            f'<div class="landing-box">'
+            f'<div class="landing-icon">{session_icon}</div>'
+            f'<div class="landing-title">Select a session and click Run Analysis</div>'
+            f'<div class="landing-sub">{", ".join(dw["tickers"])}</div></div>',
             unsafe_allow_html=True,
         )
 
@@ -787,14 +905,13 @@ elif mode == "🔍 Search Ticker":
         color = "#22c55e" if chg >= 0 else "#ef4444"
         sign = "+" if chg >= 0 else ""
 
-        mode_tag = '<span style="font-size:0.65rem;color:#a78bfa;background:rgba(167,139,250,0.15);padding:2px 8px;border-radius:4px;margin-left:8px;">STOCK MODE</span>' if use_stock_mode else ""
+        mode_tag = '<span class="page-header-tag">STOCK MODE</span>' if use_stock_mode else ""
         st.markdown(
-            f'<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;margin-bottom:4px;">'
-            f'<span style="font-size:clamp(1.3rem,4vw,2rem);font-weight:800;color:#e2e8f0;">{ticker}</span>'
-            f'<span style="font-size:clamp(1.1rem,3.5vw,1.8rem);font-weight:700;color:#e2e8f0;">{fmt_price(price, currency_sym)}</span>'
-            f'<span style="font-size:clamp(0.75rem,2.5vw,1rem);font-weight:600;color:{color};">{sign}{chg:.2f} ({sign}{chg_pct:.2f}%)</span>'
-            f'<span style="font-size:0.75rem;color:#64748b;background:#1e293b;padding:3px 10px;border-radius:5px;">'
-            f'{ac_icon} {asset_class}</span>{mode_tag}</div>',
+            f'<div class="ticker-header">'
+            f'<span class="ticker-symbol">{ticker}</span>'
+            f'<span class="ticker-price">{fmt_price(price, currency_sym)}</span>'
+            f'<span class="ticker-change" style="color:{color};">{sign}{chg:.2f} ({sign}{chg_pct:.2f}%)</span>'
+            f'<span class="ticker-badge">{ac_icon} {asset_class}</span>{mode_tag}</div>',
             unsafe_allow_html=True,
         )
 
@@ -803,11 +920,11 @@ elif mode == "🔍 Search Ticker":
         trend_html = f'<span style="color:#94a3b8;font-size:0.78rem;margin-left:12px;">{trend}</span>' if trend else ""
 
         st.markdown(
-            f'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+            f'<div class="ticker-info-row">'
             f'<span class="bias-badge {bias_class(setup.bias)}">{setup.bias.value.upper()} BIAS</span>'
-            f'<span style="font-size:clamp(0.65rem,2vw,0.78rem);">Confidence: {conf}</span>'
+            f'<span style="font-size:0.78rem;">Confidence: {conf}</span>'
             f'{trend_html}'
-            f'<span style="color:#64748b;font-size:clamp(0.65rem,2vw,0.78rem);">'
+            f'<span style="color:#64748b;font-size:0.78rem;">'
             f'{len(df)} candles · {PERIOD_LABELS.get(period, period)} · {INTERVAL_LABELS.get(interval, interval)}</span></div>',
             unsafe_allow_html=True,
         )
@@ -975,10 +1092,9 @@ elif mode == "🔍 Search Ticker":
 
 elif mode == "📋 Custom Scanner":
     st.markdown(
-        f'<div style="margin-bottom:20px;">'
-        f'<span style="font-size:1.8rem;font-weight:800;color:#e2e8f0;">'
-        f'{ac_icon} {asset_class} Scanner</span>'
-        f'<span style="color:#64748b;font-size:0.85rem;margin-left:16px;">'
+        f'<div class="page-header">'
+        f'<span class="page-header-title">{ac_icon} {asset_class} Scanner</span>'
+        f'<span class="page-header-meta">'
         f'{len(tickers_list)} tickers · {PERIOD_LABELS.get(period, period)} · '
         f'{INTERVAL_LABELS.get(interval, interval)}</span></div>',
         unsafe_allow_html=True,
@@ -996,10 +1112,9 @@ elif mode == "📋 Custom Scanner":
 
 elif mode == "🧪 Backtest":
     st.markdown(
-        f'<div style="margin-bottom:20px;">'
-        f'<span style="font-size:1.8rem;font-weight:800;color:#e2e8f0;">'
-        f'🧪 Strategy Backtest</span>'
-        f'<span style="color:#64748b;font-size:0.85rem;margin-left:16px;">'
+        f'<div class="page-header">'
+        f'<span class="page-header-title">🧪 Strategy Backtest</span>'
+        f'<span class="page-header-meta">'
         f'{bt_start_date} → {bt_end_date} · {bt_session}</span></div>',
         unsafe_allow_html=True,
     )
@@ -1038,8 +1153,8 @@ elif mode == "🧪 Backtest":
 
         # ── Summary metrics ──
         st.markdown(
-            '<div style="margin:20px 0 10px;font-size:1.3rem;font-weight:700;color:#e2e8f0;">'
-            '📊 Overall Performance</div>',
+            '<div class="page-header" style="margin-top:20px;">'
+            '<span class="page-header-title" style="font-size:1.3rem;">📊 Overall Performance</span></div>',
             unsafe_allow_html=True,
         )
 
@@ -1054,8 +1169,8 @@ elif mode == "🧪 Backtest":
         if total_trades > 0:
             # ── Equity curve ──
             st.markdown(
-                '<div style="margin:30px 0 10px;font-size:1.3rem;font-weight:700;color:#e2e8f0;">'
-                '📈 Equity Curve (cumulative P&L)</div>',
+                '<div class="page-header" style="margin-top:30px;">'
+                '<span class="page-header-title" style="font-size:1.3rem;">📈 Equity Curve (cumulative P&L)</span></div>',
                 unsafe_allow_html=True,
             )
             sorted_trades = sorted(all_trades, key=lambda t: t.date)
@@ -1088,8 +1203,8 @@ elif mode == "🧪 Backtest":
 
             # ── Per-ticker breakdown ──
             st.markdown(
-                '<div style="margin:30px 0 10px;font-size:1.3rem;font-weight:700;color:#e2e8f0;">'
-                '🔍 Per-Ticker Breakdown</div>',
+                '<div class="page-header" style="margin-top:30px;">'
+                '<span class="page-header-title" style="font-size:1.3rem;">🔍 Per-Ticker Breakdown</span></div>',
                 unsafe_allow_html=True,
             )
 
@@ -1130,8 +1245,8 @@ elif mode == "🧪 Backtest":
 
             # ── All trades table ──
             st.markdown(
-                '<div style="margin:30px 0 10px;font-size:1.3rem;font-weight:700;color:#e2e8f0;">'
-                '📋 All Trades</div>',
+                '<div class="page-header" style="margin-top:30px;">'
+                '<span class="page-header-title" style="font-size:1.3rem;">📋 All Trades</span></div>',
                 unsafe_allow_html=True,
             )
             if all_trades:
@@ -1162,12 +1277,12 @@ elif mode == "🧪 Backtest":
 
     else:
         st.markdown(
-            '<div style="text-align:center;padding:60px 20px;color:#64748b;">'
-            '<div style="font-size:3rem;margin-bottom:16px;">🧪</div>'
-            '<div style="font-size:1.2rem;font-weight:600;color:#94a3b8;">Configure your backtest and click Run</div>'
-            '<div style="font-size:0.85rem;margin-top:8px;">'
+            '<div class="landing-box">'
+            '<div class="landing-icon">🧪</div>'
+            '<div class="landing-title">Configure your backtest and click Run</div>'
+            '<div class="landing-sub">'
             'The strategy will run day-by-day on historical data and simulate trade outcomes</div>'
-            '<div style="font-size:0.78rem;margin-top:16px;color:#64748b;">'
+            '<div class="landing-sub" style="margin-top:8px;">'
             'For each signal: walks forward bar-by-bar to check if TP or SL is hit first</div></div>',
             unsafe_allow_html=True,
         )
