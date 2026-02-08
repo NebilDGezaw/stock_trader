@@ -23,6 +23,9 @@ env/
 .DS_Store
 Thumbs.db
 
+# Secrets
+.env
+
 # Data cache
 *.csv
 *.pkl

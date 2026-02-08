@@ -1,0 +1,77 @@
+name: Market Alerts
+
+on:
+  # ── Scheduled runs ──────────────────────────────────────
+  schedule:
+    # US market open: 9:30 AM ET = 14:30 UTC (Mon-Fri)
+    - cron: "30 14 * * 1-5"
+    # Mid-day check: 12:00 PM ET = 17:00 UTC (Mon-Fri)
+    - cron: "0 17 * * 1-5"
+
+  # ── Manual trigger (for testing) ────────────────────────
+  workflow_dispatch:
+    inputs:
+      asset:
+        description: "Asset class to scan"
+        required: false
+        default: "stocks"
+        type: choice
+        options:
+          - stocks
+          - crypto
+          - forex
+          - commodities
+          - all
+
+jobs:
+  scan-and-alert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install yfinance pandas numpy
+
+      - name: Run stock scan
+        if: github.event_name == 'schedule' || github.event.inputs.asset == 'stocks'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m alerts.telegram_bot --asset stocks
+
+      - name: Run crypto scan
+        if: github.event_name == 'schedule' || github.event.inputs.asset == 'crypto' || github.event.inputs.asset == 'all'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m alerts.telegram_bot --asset crypto
+
+      - name: Run forex scan
+        if: github.event.inputs.asset == 'forex' || github.event.inputs.asset == 'all'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m alerts.telegram_bot --asset forex
+
+      - name: Run commodities scan
+        if: github.event.inputs.asset == 'commodities' || github.event.inputs.asset == 'all'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m alerts.telegram_bot --asset commodities
+
+      - name: Run all scan (scheduled)
+        if: github.event_name == 'schedule'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m alerts.telegram_bot --all
