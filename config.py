@@ -110,6 +110,18 @@ INITIAL_CAPITAL = 100_000       # starting capital ($)
 MAX_OPEN_POSITIONS = 3          # maximum concurrent positions
 
 # ──────────────────────────────────────────────
+#  Fakeout Detection
+# ──────────────────────────────────────────────
+FAKEOUT_DISPLACEMENT_MIN_BODY = 0.55   # min body-to-range ratio for displacement
+FAKEOUT_VOLUME_LOOKBACK = 20           # bars to compute average volume
+FAKEOUT_VOLUME_MULTIPLIER = 1.2        # break candle vol must be ≥ 1.2× avg
+FAKEOUT_HOLD_CANDLES = 2               # how many candles must close beyond level
+FAKEOUT_SWEEP_REVERSAL_BODY = 0.50     # min body ratio for reversal after sweep
+FAKEOUT_PENALTY_NO_DISPLACEMENT = 1    # score deduction if no displacement
+FAKEOUT_PENALTY_NO_VOLUME = 1          # score deduction if low volume
+FAKEOUT_PENALTY_ISOLATED = 1           # deduction for signals without confluence
+
+# ──────────────────────────────────────────────
 #  Signal Scoring
 # ──────────────────────────────────────────────
 SIGNAL_SCORE_THRESHOLDS = {

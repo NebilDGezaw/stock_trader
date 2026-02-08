@@ -16,7 +16,9 @@ import config
 from models.signals import (
     Signal, SignalType, MarketBias, LiquidityLevel,
 )
-from utils.helpers import wick_to_range
+from utils.helpers import (
+    wick_to_range, is_strong_reversal, has_volume_confirmation,
+)
 
 
 class LiquidityAnalyzer:
@@ -92,12 +94,17 @@ class LiquidityAnalyzer:
         """
         Check if the most recent candle(s) swept a liquidity level and
         reversed (wick-based).
+
+        Anti-fakeout:
+        - The sweep candle must show a strong reversal body (not a doji).
+        - Volume should be above average to confirm institutional activity.
+        - Weak sweeps (small body, low volume) get reduced score.
         """
         if len(self.df) < 2:
             return
 
+        last_idx = len(self.df) - 1
         last = self.df.iloc[-1]
-        prev = self.df.iloc[-2]
 
         for level in self._levels:
             if level.swept:
@@ -106,22 +113,46 @@ class LiquidityAnalyzer:
             # --- Sweep above equal highs (bearish signal) ---
             if level.level_type == "equal_highs":
                 if last["High"] > level.price and last["Close"] < level.price:
-                    # Wick above the level but closed below = sweep
                     if wick_to_range(last, "upper") >= config.LIQ_SWEEP_WICK_MIN:
                         level.swept = True
                         level.sweep_date = self.df.index[-1]
-                        self._signals.append(Signal(
-                            signal_type=SignalType.LIQUIDITY_SWEEP_HIGH,
-                            timestamp=self.df.index[-1],
-                            price=level.price,
-                            bias=MarketBias.BEARISH,
-                            score=3,
-                            details=(
-                                f"Liquidity sweep above equal highs "
-                                f"@ {level.price:.2f} "
-                                f"({level.touch_count} touches)"
-                            ),
-                        ))
+
+                        # Anti-fakeout checks
+                        score = 3
+                        warnings = []
+
+                        # Must reverse strongly (bearish body)
+                        if not is_strong_reversal(
+                            self.df, last_idx, "bearish",
+                            min_body_ratio=config.FAKEOUT_SWEEP_REVERSAL_BODY,
+                        ):
+                            score -= 1
+                            warnings.append("weak reversal")
+
+                        # Volume confirmation
+                        if not has_volume_confirmation(
+                            self.df, last_idx,
+                            lookback=config.FAKEOUT_VOLUME_LOOKBACK,
+                            multiplier=config.FAKEOUT_VOLUME_MULTIPLIER,
+                        ):
+                            score -= 1
+                            warnings.append("low vol")
+
+                        tag = f" ⚠ [{', '.join(warnings)}]" if warnings else ""
+
+                        if score > 0:
+                            self._signals.append(Signal(
+                                signal_type=SignalType.LIQUIDITY_SWEEP_HIGH,
+                                timestamp=self.df.index[-1],
+                                price=level.price,
+                                bias=MarketBias.BEARISH,
+                                score=score,
+                                details=(
+                                    f"Liquidity sweep above equal highs "
+                                    f"@ {level.price:.2f} "
+                                    f"({level.touch_count} touches){tag}"
+                                ),
+                            ))
 
             # --- Sweep below equal lows (bullish signal) ---
             elif level.level_type == "equal_lows":
@@ -129,15 +160,37 @@ class LiquidityAnalyzer:
                     if wick_to_range(last, "lower") >= config.LIQ_SWEEP_WICK_MIN:
                         level.swept = True
                         level.sweep_date = self.df.index[-1]
-                        self._signals.append(Signal(
-                            signal_type=SignalType.LIQUIDITY_SWEEP_LOW,
-                            timestamp=self.df.index[-1],
-                            price=level.price,
-                            bias=MarketBias.BULLISH,
-                            score=3,
-                            details=(
-                                f"Liquidity sweep below equal lows "
-                                f"@ {level.price:.2f} "
-                                f"({level.touch_count} touches)"
-                            ),
-                        ))
+
+                        score = 3
+                        warnings = []
+
+                        if not is_strong_reversal(
+                            self.df, last_idx, "bullish",
+                            min_body_ratio=config.FAKEOUT_SWEEP_REVERSAL_BODY,
+                        ):
+                            score -= 1
+                            warnings.append("weak reversal")
+
+                        if not has_volume_confirmation(
+                            self.df, last_idx,
+                            lookback=config.FAKEOUT_VOLUME_LOOKBACK,
+                            multiplier=config.FAKEOUT_VOLUME_MULTIPLIER,
+                        ):
+                            score -= 1
+                            warnings.append("low vol")
+
+                        tag = f" ⚠ [{', '.join(warnings)}]" if warnings else ""
+
+                        if score > 0:
+                            self._signals.append(Signal(
+                                signal_type=SignalType.LIQUIDITY_SWEEP_LOW,
+                                timestamp=self.df.index[-1],
+                                price=level.price,
+                                bias=MarketBias.BULLISH,
+                                score=score,
+                                details=(
+                                    f"Liquidity sweep below equal lows "
+                                    f"@ {level.price:.2f} "
+                                    f"({level.touch_count} touches){tag}"
+                                ),
+                            ))

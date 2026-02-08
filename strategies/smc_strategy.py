@@ -22,7 +22,7 @@ from strategies.fair_value_gaps import FairValueGapDetector
 from strategies.liquidity import LiquidityAnalyzer
 from utils.helpers import (
     is_premium, is_discount, is_in_kill_zone, get_equilibrium,
-    calculate_position_size,
+    calculate_position_size, get_active_kill_zone,
 )
 
 
@@ -53,6 +53,7 @@ class SMCStrategy:
         """Execute the full strategy pipeline."""
         self._run_sub_strategies()
         self._apply_confluence_filters()
+        self._apply_fakeout_filters()
         self._compute_composite_score()
         self._generate_trade_setup()
         return self
@@ -151,6 +152,85 @@ class SMCStrategy:
                 score=1,
                 details="Active kill zone — higher probability window",
             ))
+
+    def _apply_fakeout_filters(self):
+        """
+        Anti-fakeout layer: penalise or discard signals that lack confluence.
+
+        Rules:
+        1. **Isolated signal penalty** — if only one directional signal type
+           exists (e.g. only a BOS with nothing else), reduce its weight.
+           Genuine moves in ICT have *multiple* confluences (BOS + OB + FVG).
+        2. **Opposing signal cancellation** — if there are roughly equal
+           bullish and bearish signals, the market is choppy/ranging. Add a
+           "conflicting signals" warning and reduce all scores.
+        3. **Outside kill-zone penalty** — signals generated outside the
+           London / NY kill zones during session-based scans are less
+           reliable; reduce score.
+        """
+        if not self._all_signals:
+            return
+
+        # Categorise signals by direction
+        bullish_types = set()
+        bearish_types = set()
+        for sig in self._all_signals:
+            if sig.bias == MarketBias.BULLISH:
+                bullish_types.add(sig.signal_type)
+            elif sig.bias == MarketBias.BEARISH:
+                bearish_types.add(sig.signal_type)
+
+        # Rule 1: Isolated signal penalty
+        # A single bullish signal type without any supporting confluence
+        dominant_dir = None
+        if bullish_types and not bearish_types:
+            dominant_dir = "bullish"
+            dominant_types = bullish_types
+        elif bearish_types and not bullish_types:
+            dominant_dir = "bearish"
+            dominant_types = bearish_types
+        else:
+            dominant_dir = None
+            dominant_types = set()
+
+        if dominant_dir and len(dominant_types) == 1:
+            # Only one signal type — potential fakeout, reduce scores
+            penalty = config.FAKEOUT_PENALTY_ISOLATED
+            for sig in self._all_signals:
+                if sig.bias != MarketBias.NEUTRAL:
+                    sig.score = max(sig.score - penalty, 0)
+                    if "isolated" not in sig.details:
+                        sig.details += " ⚠ [isolated — no confluence]"
+
+        # Rule 2: Conflicting signals — when both sides are close in count
+        total_bull = sum(s.score for s in self._all_signals if s.bias == MarketBias.BULLISH)
+        total_bear = sum(s.score for s in self._all_signals if s.bias == MarketBias.BEARISH)
+        if total_bull > 0 and total_bear > 0:
+            ratio = min(total_bull, total_bear) / max(total_bull, total_bear)
+            if ratio > 0.7:  # nearly equal = choppy / ranging
+                self._all_signals.append(Signal(
+                    signal_type=SignalType.KILL_ZONE,  # reuse as "warning"
+                    timestamp=self.df.index[-1],
+                    price=self.df.iloc[-1]["Close"],
+                    bias=MarketBias.NEUTRAL,
+                    score=0,
+                    details=(
+                        "⚠ Conflicting signals detected — possible ranging/choppy market. "
+                        "Fakeout risk elevated."
+                    ),
+                ))
+
+        # Rule 3: Outside kill-zone penalty
+        ts = self.df.index[-1]
+        if hasattr(ts, "hour"):
+            zone = get_active_kill_zone(ts)
+            if zone is None:
+                # Outside any kill zone — signals are less reliable
+                for sig in self._all_signals:
+                    if sig.bias != MarketBias.NEUTRAL and sig.score > 1:
+                        sig.score = max(sig.score - 1, 1)
+                        if "off-session" not in sig.details:
+                            sig.details += " [off-session]"
 
     def _compute_composite_score(self):
         """Tally bullish and bearish scores from all signals."""

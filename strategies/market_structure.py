@@ -15,7 +15,10 @@ from typing import List, Tuple
 
 import config
 from models.signals import Signal, SignalType, MarketBias
-from utils.helpers import detect_swing_highs, detect_swing_lows
+from utils.helpers import (
+    detect_swing_highs, detect_swing_lows,
+    has_displacement, has_volume_confirmation, candle_closed_beyond,
+)
 
 
 class MarketStructureAnalyzer:
@@ -89,6 +92,10 @@ class MarketStructureAnalyzer:
         - BOS in downtrend = new LL.
         - CHoCH up→down    = price breaks below the most recent HL.
         - CHoCH down→up    = price breaks above the most recent LH.
+
+        Anti-fakeout:
+        - Each break is validated for displacement (strong body close) and
+          volume confirmation.  Signals that fail are penalised or dropped.
         """
         if len(self._swing_highs) < 2 or len(self._swing_lows) < 2:
             return
@@ -113,31 +120,40 @@ class MarketStructureAnalyzer:
                     if price > prev_high:
                         # Higher high
                         if trend == "down":
-                            # CHoCH: downtrend broken by higher high
-                            self._add_signal(
-                                SignalType.CHOCH, ts, price,
-                                MarketBias.BULLISH, 3,
-                                f"CHoCH bullish — HH at {price:.2f} breaks downtrend"
+                            score, tag = self._fakeout_adjusted_score(
+                                idx, prev_high, "bullish", base_score=3
                             )
+                            if score > 0:
+                                self._add_signal(
+                                    SignalType.CHOCH, ts, price,
+                                    MarketBias.BULLISH, score,
+                                    f"CHoCH bullish — HH at {price:.2f} breaks downtrend{tag}"
+                                )
                             trend = "up"
                         elif trend == "up":
-                            # BOS: continuation
-                            self._add_signal(
-                                SignalType.BOS, ts, price,
-                                MarketBias.BULLISH, 2,
-                                f"BOS bullish — HH at {price:.2f}"
+                            score, tag = self._fakeout_adjusted_score(
+                                idx, prev_high, "bullish", base_score=2
                             )
+                            if score > 0:
+                                self._add_signal(
+                                    SignalType.BOS, ts, price,
+                                    MarketBias.BULLISH, score,
+                                    f"BOS bullish — HH at {price:.2f}{tag}"
+                                )
                     else:
                         # Lower high
                         if trend == "up":
-                            # Potential weakening — don't signal yet
                             pass
                         elif trend == "down":
-                            self._add_signal(
-                                SignalType.BOS, ts, price,
-                                MarketBias.BEARISH, 2,
-                                f"BOS bearish — LH at {price:.2f}"
+                            score, tag = self._fakeout_adjusted_score(
+                                idx, prev_high, "bearish", base_score=2
                             )
+                            if score > 0:
+                                self._add_signal(
+                                    SignalType.BOS, ts, price,
+                                    MarketBias.BEARISH, score,
+                                    f"BOS bearish — LH at {price:.2f}{tag}"
+                                )
                 prev_high = price
 
             else:  # kind == "low"
@@ -145,29 +161,40 @@ class MarketStructureAnalyzer:
                     if price < prev_low:
                         # Lower low
                         if trend == "up":
-                            # CHoCH: uptrend broken by lower low
-                            self._add_signal(
-                                SignalType.CHOCH, ts, price,
-                                MarketBias.BEARISH, 3,
-                                f"CHoCH bearish — LL at {price:.2f} breaks uptrend"
+                            score, tag = self._fakeout_adjusted_score(
+                                idx, prev_low, "bearish", base_score=3
                             )
+                            if score > 0:
+                                self._add_signal(
+                                    SignalType.CHOCH, ts, price,
+                                    MarketBias.BEARISH, score,
+                                    f"CHoCH bearish — LL at {price:.2f} breaks uptrend{tag}"
+                                )
                             trend = "down"
                         elif trend == "down":
-                            self._add_signal(
-                                SignalType.BOS, ts, price,
-                                MarketBias.BEARISH, 2,
-                                f"BOS bearish — LL at {price:.2f}"
+                            score, tag = self._fakeout_adjusted_score(
+                                idx, prev_low, "bearish", base_score=2
                             )
+                            if score > 0:
+                                self._add_signal(
+                                    SignalType.BOS, ts, price,
+                                    MarketBias.BEARISH, score,
+                                    f"BOS bearish — LL at {price:.2f}{tag}"
+                                )
                     else:
                         # Higher low
                         if trend == "down":
-                            pass  # potential weakening
+                            pass
                         elif trend == "up":
-                            self._add_signal(
-                                SignalType.BOS, ts, price,
-                                MarketBias.BULLISH, 2,
-                                f"BOS bullish — HL at {price:.2f}"
+                            score, tag = self._fakeout_adjusted_score(
+                                idx, prev_low, "bullish", base_score=2
                             )
+                            if score > 0:
+                                self._add_signal(
+                                    SignalType.BOS, ts, price,
+                                    MarketBias.BULLISH, score,
+                                    f"BOS bullish — HL at {price:.2f}{tag}"
+                                )
                 prev_low = price
 
             # Initial trend determination
@@ -179,6 +206,55 @@ class MarketStructureAnalyzer:
             self._bias = self._structure_signals[-1].bias
         else:
             self._bias = MarketBias.NEUTRAL
+
+    # ── fakeout validation ────────────────────────────────
+
+    def _fakeout_adjusted_score(
+        self, bar_idx: int, level: float, direction: str, base_score: int
+    ) -> Tuple[int, str]:
+        """
+        Validate a structure break against fakeout indicators.
+        Returns (adjusted_score, detail_tag).
+
+        Checks:
+        1. Displacement — does the break candle have a strong body?
+        2. Volume — is volume above average on the break?
+        3. Candle close — did the body close beyond the level (not just wick)?
+
+        Each failure reduces the score; if score reaches 0 the signal is dropped.
+        """
+        score = base_score
+        warnings = []
+
+        close_dir = "above" if direction == "bullish" else "below"
+
+        # 1) Body closed beyond level (most critical — wick-only = fakeout)
+        if not candle_closed_beyond(self.df, bar_idx, level, close_dir):
+            score -= config.FAKEOUT_PENALTY_NO_DISPLACEMENT
+            warnings.append("wick-only")
+
+        # 2) Displacement (strong body candle)
+        if not has_displacement(
+            self.df, bar_idx, direction,
+            min_body_ratio=config.FAKEOUT_DISPLACEMENT_MIN_BODY,
+        ):
+            score -= config.FAKEOUT_PENALTY_NO_DISPLACEMENT
+            warnings.append("weak body")
+
+        # 3) Volume confirmation
+        if not has_volume_confirmation(
+            self.df, bar_idx,
+            lookback=config.FAKEOUT_VOLUME_LOOKBACK,
+            multiplier=config.FAKEOUT_VOLUME_MULTIPLIER,
+        ):
+            score -= config.FAKEOUT_PENALTY_NO_VOLUME
+            warnings.append("low vol")
+
+        tag = ""
+        if warnings:
+            tag = f" ⚠ [{', '.join(warnings)}]"
+
+        return max(score, 0), tag
 
     def _add_signal(self, sig_type, ts, price, bias, score, details):
         self._structure_signals.append(

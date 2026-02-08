@@ -21,6 +21,7 @@ from models.signals import (
 )
 from utils.helpers import (
     is_bullish_candle, is_bearish_candle, body_ratio, candle_range,
+    has_volume_confirmation, has_displacement,
 )
 
 
@@ -60,6 +61,9 @@ class OrderBlockDetector:
         """
         Scan for order blocks by looking for strong displacement candles
         and marking the last opposite candle before them.
+
+        Anti-fakeout: the displacement candle must also have above-average
+        volume.  Low-volume OBs are weaker and more likely to fail.
         """
         df = self.df
         n = len(df)
@@ -70,10 +74,18 @@ class OrderBlockDetector:
 
             # --- Bullish OB: bearish candle followed by strong bullish move ---
             if is_bearish_candle(prev) and is_bullish_candle(curr):
-                # Check displacement: current candle body is large
                 if body_ratio(curr) >= config.OB_BODY_RATIO_MIN:
-                    # The bullish candle should engulf or significantly exceed
                     if curr["Close"] > prev["High"]:
+                        # Anti-fakeout: verify displacement candle quality
+                        vol_ok = has_volume_confirmation(
+                            df, i,
+                            lookback=config.FAKEOUT_VOLUME_LOOKBACK,
+                            multiplier=config.FAKEOUT_VOLUME_MULTIPLIER,
+                        )
+                        disp_ok = has_displacement(
+                            df, i, "bullish",
+                            min_body_ratio=config.FAKEOUT_DISPLACEMENT_MIN_BODY,
+                        )
                         ob = OrderBlock(
                             ob_type="bullish",
                             top=max(prev["Open"], prev["Close"]),
@@ -81,12 +93,22 @@ class OrderBlockDetector:
                             formation_index=i - 1,
                             formation_date=df.index[i - 1],
                         )
+                        ob.confirmed = vol_ok and disp_ok  # type: ignore[attr-defined]
                         self._order_blocks.append(ob)
 
             # --- Bearish OB: bullish candle followed by strong bearish move ---
             if is_bullish_candle(prev) and is_bearish_candle(curr):
                 if body_ratio(curr) >= config.OB_BODY_RATIO_MIN:
                     if curr["Close"] < prev["Low"]:
+                        vol_ok = has_volume_confirmation(
+                            df, i,
+                            lookback=config.FAKEOUT_VOLUME_LOOKBACK,
+                            multiplier=config.FAKEOUT_VOLUME_MULTIPLIER,
+                        )
+                        disp_ok = has_displacement(
+                            df, i, "bearish",
+                            min_body_ratio=config.FAKEOUT_DISPLACEMENT_MIN_BODY,
+                        )
                         ob = OrderBlock(
                             ob_type="bearish",
                             top=max(prev["Open"], prev["Close"]),
@@ -94,6 +116,7 @@ class OrderBlockDetector:
                             formation_index=i - 1,
                             formation_date=df.index[i - 1],
                         )
+                        ob.confirmed = vol_ok and disp_ok  # type: ignore[attr-defined]
                         self._order_blocks.append(ob)
 
     def _check_mitigation(self):
@@ -123,6 +146,9 @@ class OrderBlockDetector:
         """
         Create signals for active (un-mitigated) order blocks that are
         close to the current price.
+
+        Anti-fakeout: OBs that weren't backed by volume/displacement
+        get a reduced score.
         """
         if len(self.df) == 0:
             return
@@ -135,6 +161,11 @@ class OrderBlockDetector:
             if age > config.OB_MAX_AGE:
                 continue
 
+            # Anti-fakeout: confirmed OBs get full score, unconfirmed get less
+            confirmed = getattr(ob, "confirmed", True)
+            base_score = 2 if confirmed else 1
+            tag = "" if confirmed else " ⚠ [unconfirmed]"
+
             # Check proximity: price within 2% of the OB zone
             proximity = 0.02
             if ob.ob_type == "bullish":
@@ -144,10 +175,10 @@ class OrderBlockDetector:
                         timestamp=self.df.index[-1],
                         price=ob.midpoint,
                         bias=MarketBias.BULLISH,
-                        score=2,
+                        score=base_score,
                         details=(
                             f"Bullish OB zone {ob.bottom:.2f}–{ob.top:.2f} "
-                            f"(age {age} bars)"
+                            f"(age {age} bars){tag}"
                         ),
                     ))
             else:
@@ -157,9 +188,9 @@ class OrderBlockDetector:
                         timestamp=self.df.index[-1],
                         price=ob.midpoint,
                         bias=MarketBias.BEARISH,
-                        score=2,
+                        score=base_score,
                         details=(
                             f"Bearish OB zone {ob.bottom:.2f}–{ob.top:.2f} "
-                            f"(age {age} bars)"
+                            f"(age {age} bars){tag}"
                         ),
                     ))

@@ -120,18 +120,28 @@ def format_alert(setup, strategy) -> str:
         sl_fmt = f"${setup.stop_loss:.4f}"
         tp_fmt = f"${setup.take_profit:.4f}"
 
-    # Signal summary
+    # Signal summary (show fakeout warnings inline)
     signal_lines = []
+    fakeout_warnings = 0
     for sig in setup.signals[:6]:  # limit to top 6
         nice = sig.signal_type.value.replace("_", " ").title()
         icon = "▲" if sig.bias == MarketBias.BULLISH else ("▼" if sig.bias == MarketBias.BEARISH else "●")
-        signal_lines.append(f"  {icon} {nice} (+{sig.score})")
+        warn = ""
+        if "⚠" in sig.details:
+            fakeout_warnings += 1
+            warn = " ⚠"
+        signal_lines.append(f"  {icon} {nice} (+{sig.score}){warn}")
     signals_text = "\n".join(signal_lines) if signal_lines else "  No signals"
+
+    confidence = "🟢 HIGH" if fakeout_warnings == 0 else (
+        "🟡 MODERATE" if fakeout_warnings <= 2 else "🔴 LOW"
+    )
 
     return (
         f"{action_em} <b>{setup.action.value}</b> — <b>{setup.ticker}</b>\n"
         f"{'─' * 28}\n"
         f"{bias_em} Bias: <b>{setup.bias.value.upper()}</b>  |  Score: <b>{setup.composite_score}</b>\n"
+        f"🛡 Confidence: <b>{confidence}</b>\n"
         f"\n"
         f"💰 Entry:  <code>{pfmt}</code>\n"
         f"🛑 SL:     <code>{sl_fmt}</code>\n"
@@ -156,7 +166,7 @@ def format_summary(results: list) -> str:
         f"🕐 {now}\n"
         f"{'─' * 28}\n"
         f"Scanned: <b>{len(results)}</b> tickers\n"
-        f"Filter: R:R ≥ 1:{MIN_RISK_REWARD:.0f}\n"
+        f"Filter: R:R ≥ 1:{MIN_RISK_REWARD:.0f} + fakeout checks\n"
         f"Actionable: <b>{len(actionable)}</b>  "
         f"(🟢 {buys} buy  |  🔴 {sells} sell)\n"
         f"{'─' * 28}\n"

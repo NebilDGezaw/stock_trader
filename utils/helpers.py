@@ -160,3 +160,91 @@ def is_discount(price: float, range_high: float, range_low: float) -> bool:
     """Is price in the discount zone (below equilibrium)?"""
     eq = get_equilibrium(range_high, range_low)
     return price < eq
+
+
+# ──────────────────────────────────────────────────────────
+#  Fakeout Detection Helpers
+# ──────────────────────────────────────────────────────────
+
+def has_displacement(df: pd.DataFrame, bar_idx: int, direction: str = "bullish",
+                     min_body_ratio: float = 0.6) -> bool:
+    """
+    Check if the candle at bar_idx shows strong displacement (conviction).
+    A displacement candle has a large body relative to its range and closes
+    convincingly beyond the break level — not just a wick poke.
+    """
+    if bar_idx < 0 or bar_idx >= len(df):
+        return False
+    row = df.iloc[bar_idx]
+    br = body_ratio(row)
+    if direction == "bullish":
+        return br >= min_body_ratio and is_bullish_candle(row)
+    else:
+        return br >= min_body_ratio and is_bearish_candle(row)
+
+
+def has_volume_confirmation(df: pd.DataFrame, bar_idx: int,
+                            lookback: int = 20, multiplier: float = 1.2) -> bool:
+    """
+    Check if the volume at bar_idx is above the recent average.
+    Genuine breaks tend to have higher-than-average volume;
+    fakeouts tend to have low volume.
+    """
+    if bar_idx < lookback or bar_idx >= len(df):
+        return True  # can't confirm, assume OK
+    if "Volume" not in df.columns:
+        return True
+    recent_vol = df["Volume"].iloc[bar_idx - lookback : bar_idx].mean()
+    if recent_vol == 0:
+        return True
+    return df.iloc[bar_idx]["Volume"] >= recent_vol * multiplier
+
+
+def candle_closed_beyond(df: pd.DataFrame, bar_idx: int, level: float,
+                         direction: str = "above") -> bool:
+    """
+    Confirm candle BODY closed beyond the level, not just a wick.
+    This is the key fakeout filter — wick-only breaks are traps.
+    """
+    if bar_idx < 0 or bar_idx >= len(df):
+        return False
+    close = df.iloc[bar_idx]["Close"]
+    if direction == "above":
+        return close > level
+    else:
+        return close < level
+
+
+def is_strong_reversal(df: pd.DataFrame, bar_idx: int, direction: str = "bullish",
+                       min_body_ratio: float = 0.5) -> bool:
+    """
+    After a liquidity sweep, check if the reversal candle is strong.
+    A weak reversal (doji, small body) suggests the sweep may continue
+    rather than reverse — likely a fakeout.
+    """
+    if bar_idx < 0 or bar_idx >= len(df):
+        return False
+    row = df.iloc[bar_idx]
+    br = body_ratio(row)
+    if br < min_body_ratio:
+        return False
+    if direction == "bullish":
+        return is_bullish_candle(row)
+    else:
+        return is_bearish_candle(row)
+
+
+def count_consecutive_breaks(df: pd.DataFrame, bar_idx: int, level: float,
+                             direction: str = "above", lookforward: int = 3) -> int:
+    """
+    Count how many of the next `lookforward` candles also close beyond the level.
+    Genuine breaks hold; fakeouts snap back within 1-2 candles.
+    """
+    count = 0
+    for i in range(bar_idx, min(bar_idx + lookforward, len(df))):
+        close = df.iloc[i]["Close"]
+        if direction == "above" and close > level:
+            count += 1
+        elif direction == "below" and close < level:
+            count += 1
+    return count
