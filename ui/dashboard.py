@@ -327,24 +327,7 @@ with st.sidebar:
     st.title("📊 Stock Trader")
     st.caption("ICT & Smart Money Concepts")
 
-    # ── Asset Class ───────────────────────────────
-    st.subheader("Asset Class", divider="gray")
-    asset_class_names = list(config.ASSET_CLASSES.keys())
-    asset_class = st.radio(
-        "Asset Class",
-        asset_class_names,
-        horizontal=True,
-        label_visibility="collapsed",
-        key="asset_class_selector",
-    )
-
-    ac = config.ASSET_CLASSES[asset_class]
-    currency_sym = ac["currency_symbol"]
-    position_unit = ac["unit"]
-    ac_icon = AC_ICONS.get(asset_class, "📊")
-    use_stock_mode = (asset_class == "Stocks")
-
-    # ── Mode ──────────────────────────────────────
+    # ── Mode (top-level choice) ───────────────────
     st.subheader("Mode", divider="gray")
     mode = st.radio(
         "Analysis Mode",
@@ -361,67 +344,87 @@ with st.sidebar:
         "Commodities": "e.g. GC=F, CL=F, SI=F",
     }
 
-    if mode == "🔍 Search Ticker":
-        st.subheader("Ticker", divider="gray")
-        ticker = st.text_input(
-            "Enter ticker symbol",
-            value=ac["default_ticker"],
-            placeholder=placeholders.get(asset_class, ""),
-            key=f"ticker_{asset_class}",
-        ).upper().strip()
-
-        # Preset group picker
-        preset_names = list(ac["presets"].keys())
-        selected_group = st.selectbox(
-            "Or pick from presets",
-            ["— Type above or pick —"] + preset_names,
-            key=f"group_{asset_class}",
-        )
-        if selected_group != "— Type above or pick —":
-            ticker = st.selectbox(
-                "Select ticker",
-                ac["presets"][selected_group],
-                key=f"pick_{asset_class}_{selected_group}",
-            )
-
-    elif mode == "📋 Custom Scanner":
-        st.subheader("Tickers", divider="gray")
-        preset_names = list(ac["presets"].keys())
-        scanner_source = st.selectbox(
-            "Watchlist",
-            ["Custom"] + preset_names,
-            key=f"scan_src_{asset_class}",
-        )
-        if scanner_source == "Custom":
-            default_val = ", ".join(ac["presets"][preset_names[0]]) if preset_names else ""
-            tickers_input = st.text_input(
-                "Tickers (comma-separated)",
-                value=default_val,
-                key=f"scan_input_{asset_class}",
-            )
-            tickers_list = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
-        else:
-            tickers_list = ac["presets"][scanner_source]
-            st.caption(", ".join(tickers_list))
-
-    # Daily Analysis — session-based dropdown
+    # ── Daily Analysis: session dropdown only (no asset-class radio) ──
     if mode == "📊 Daily Analysis":
-        st.subheader("Session", divider="gray")
+        st.subheader("Trading Session", divider="gray")
         session_names = list(DAILY_SESSIONS.keys())
         selected_session = st.selectbox(
             "Select trading session",
             session_names,
             key="session_selector",
-            label_visibility="collapsed",
         )
         dw = DAILY_SESSIONS[selected_session]
         st.caption(", ".join(dw["tickers"]))
         st.info(f"Interval: **{INTERVAL_LABELS.get(dw['interval'], dw['interval'])}** · Period: **{PERIOD_LABELS.get(dw['period'], dw['period'])}**", icon="⏱️")
         if dw["stock_mode"]:
             st.info("**Stock Mode** active — medium risk, ATR stops, trend momentum", icon="🏛️")
+        # Defaults for overlays / risk (no asset class needed)
+        currency_sym = "$"
+        position_unit = "shares"
+        ac_icon = dw["icon"]
+        use_stock_mode = dw["stock_mode"]
 
-    # ── Timeframe (only for Search & Custom) ──────
-    if mode in ("🔍 Search Ticker", "📋 Custom Scanner"):
+    # ── Search / Scanner: asset class radio shown ──
+    else:
+        st.subheader("Asset Class", divider="gray")
+        asset_class_names = list(config.ASSET_CLASSES.keys())
+        asset_class = st.radio(
+            "Asset Class",
+            asset_class_names,
+            horizontal=True,
+            label_visibility="collapsed",
+            key="asset_class_selector",
+        )
+        ac = config.ASSET_CLASSES[asset_class]
+        currency_sym = ac["currency_symbol"]
+        position_unit = ac["unit"]
+        ac_icon = AC_ICONS.get(asset_class, "📊")
+        use_stock_mode = (asset_class == "Stocks")
+
+        if mode == "🔍 Search Ticker":
+            st.subheader("Ticker", divider="gray")
+            ticker = st.text_input(
+                "Enter ticker symbol",
+                value=ac["default_ticker"],
+                placeholder=placeholders.get(asset_class, ""),
+                key=f"ticker_{asset_class}",
+            ).upper().strip()
+
+            # Preset group picker
+            preset_names = list(ac["presets"].keys())
+            selected_group = st.selectbox(
+                "Or pick from presets",
+                ["— Type above or pick —"] + preset_names,
+                key=f"group_{asset_class}",
+            )
+            if selected_group != "— Type above or pick —":
+                ticker = st.selectbox(
+                    "Select ticker",
+                    ac["presets"][selected_group],
+                    key=f"pick_{asset_class}_{selected_group}",
+                )
+
+        elif mode == "📋 Custom Scanner":
+            st.subheader("Tickers", divider="gray")
+            preset_names = list(ac["presets"].keys())
+            scanner_source = st.selectbox(
+                "Watchlist",
+                ["Custom"] + preset_names,
+                key=f"scan_src_{asset_class}",
+            )
+            if scanner_source == "Custom":
+                default_val = ", ".join(ac["presets"][preset_names[0]]) if preset_names else ""
+                tickers_input = st.text_input(
+                    "Tickers (comma-separated)",
+                    value=default_val,
+                    key=f"scan_input_{asset_class}",
+                )
+                tickers_list = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+            else:
+                tickers_list = ac["presets"][scanner_source]
+                st.caption(", ".join(tickers_list))
+
+        # ── Timeframe (Search & Custom only) ──────
         st.subheader("Timeframe", divider="gray")
         all_intervals = ["1m", "5m", "15m", "30m", "1h", "1d", "1wk"]
         interval = st.selectbox(
@@ -461,6 +464,15 @@ with st.sidebar:
 
 
 # ══════════════════════════════════════════════════════════
+#  Session state for results persistence
+# ══════════════════════════════════════════════════════════
+
+if "scan_results" not in st.session_state:
+    st.session_state.scan_results = None
+    st.session_state.scan_session = None
+
+
+# ══════════════════════════════════════════════════════════
 #  MAIN CONTENT — Daily Analysis
 # ══════════════════════════════════════════════════════════
 
@@ -468,6 +480,11 @@ if mode == "📊 Daily Analysis":
     dw = DAILY_SESSIONS[selected_session]
     session_icon = dw["icon"]
     session_stock_mode = dw["stock_mode"]
+
+    # Clear cached results when session changes
+    if st.session_state.scan_session != selected_session:
+        st.session_state.scan_results = None
+        st.session_state.scan_session = selected_session
 
     st.markdown(
         f'<div style="margin-bottom:20px;">'
@@ -481,17 +498,31 @@ if mode == "📊 Daily Analysis":
         unsafe_allow_html=True,
     )
 
-    if st.button(f"🚀  Run Analysis", type="primary", use_container_width=True):
+    btn_col, home_col = st.columns([3, 1])
+    with btn_col:
+        run_clicked = st.button("🚀  Run Analysis", type="primary", use_container_width=True)
+    with home_col:
+        home_clicked = st.button("🏠 Home", use_container_width=True)
+
+    if home_clicked:
+        st.session_state.scan_results = None
+        st.rerun()
+
+    if run_clicked:
         results = run_scan(dw["tickers"], dw["period"], dw["interval"], stock_mode=session_stock_mode)
-        # Use $ for most sessions
-        scan_sym = "$" if not session_stock_mode else currency_sym
-        render_scanner_results(results, scan_sym, show_obs, show_fvgs,
-                               show_liq, show_structure, show_trade, show_pd)
+        st.session_state.scan_results = results
+        st.session_state.scan_session = selected_session
+
+    # Show results if we have them
+    if st.session_state.scan_results:
+        scan_sym = "$"
+        render_scanner_results(st.session_state.scan_results, scan_sym, show_obs,
+                               show_fvgs, show_liq, show_structure, show_trade, show_pd)
     else:
         st.markdown(
             f'<div style="text-align:center;padding:60px 20px;color:#64748b;">'
             f'<div style="font-size:3rem;margin-bottom:16px;">{session_icon}</div>'
-            f'<div style="font-size:1.2rem;font-weight:600;color:#94a3b8;">Click the button above to scan</div>'
+            f'<div style="font-size:1.2rem;font-weight:600;color:#94a3b8;">Select a session and click Run Analysis</div>'
             f'<div style="font-size:0.85rem;margin-top:8px;">'
             f'{", ".join(dw["tickers"])}</div></div>',
             unsafe_allow_html=True,
