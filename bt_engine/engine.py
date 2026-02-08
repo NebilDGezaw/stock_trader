@@ -23,8 +23,42 @@ from typing import List, Optional, Dict
 import config
 from data.fetcher import StockDataFetcher
 from strategies.smc_strategy import SMCStrategy
+from strategies.leveraged_momentum import LeveragedMomentumStrategy
+from strategies.crypto_momentum import CryptoMomentumStrategy
+from strategies.forex_ict import ForexICTStrategy
 from models.signals import TradeAction, MarketBias
 from utils.helpers import compute_atr
+
+
+def _detect_asset_type(ticker: str) -> str:
+    """Auto-detect asset type from ticker symbol (shared by backtester)."""
+    t = ticker.upper()
+    if t in getattr(config, 'LEVERAGED_TICKERS', []):
+        return "leveraged"
+    crypto_tickers = [tk for presets in config.ASSET_CLASSES.get("Crypto", {}).get("presets", {}).values() for tk in presets]
+    if t in crypto_tickers or (t.endswith("-USD") and "=" not in t):
+        return "crypto"
+    if "=X" in t:
+        return "forex"
+    commodity_tickers = [tk for presets in config.ASSET_CLASSES.get("Commodities", {}).get("presets", {}).values() for tk in presets]
+    if t in commodity_tickers or "=F" in t:
+        return "commodity"
+    return "stocks"
+
+
+def _run_strategy(df, ticker: str, stock_mode: bool = False):
+    """Run the correct strategy for a ticker (mirrors UI + Telegram logic)."""
+    asset_type = _detect_asset_type(ticker)
+    if asset_type == "leveraged":
+        return LeveragedMomentumStrategy(df, ticker=ticker, stock_mode=True).run()
+    elif asset_type == "crypto":
+        return CryptoMomentumStrategy(df, ticker=ticker).run()
+    elif asset_type == "forex":
+        return ForexICTStrategy(df, ticker=ticker).run()
+    elif asset_type == "commodity":
+        return CryptoMomentumStrategy(df, ticker=ticker).run()
+    else:
+        return SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
 
 # Default strategy class — can be overridden
 _DEFAULT_STRATEGY = SMCStrategy
@@ -836,8 +870,8 @@ class Backtester:
             if len(history) < 30:
                 continue
             try:
-                strat = SMCStrategy(history, ticker=self.ticker,
-                                    stock_mode=self.stock_mode).run()
+                strat = _run_strategy(history, self.ticker,
+                                      stock_mode=self.stock_mode)
             except Exception:
                 continue
             setup = strat.trade_setup
