@@ -303,6 +303,131 @@ def trend_sma_bias(df: pd.DataFrame, period: int = 20) -> str:
         return "neutral"
 
 
+def compute_rsi_series(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Compute RSI as a full Series (for the leveraged strategy)."""
+    delta = df["Close"].diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta).where(delta < 0, 0.0)
+    avg_gain = gain.rolling(window=period, min_periods=1).mean()
+    avg_loss = loss.rolling(window=period, min_periods=1).mean()
+    rs = avg_gain / avg_loss.replace(0, np.inf)
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+    return rsi
+
+
+def compute_bollinger_bands(df: pd.DataFrame, period: int = 20, std: float = 2.0):
+    """Returns (upper, middle, lower) Bollinger Band Series."""
+    middle = df["Close"].rolling(window=period, min_periods=1).mean()
+    rolling_std = df["Close"].rolling(window=period, min_periods=1).std()
+    upper = middle + (rolling_std * std)
+    lower = middle - (rolling_std * std)
+    return upper, middle, lower
+
+
+def compute_ema(df: pd.DataFrame, period: int) -> pd.Series:
+    """Compute Exponential Moving Average."""
+    return df["Close"].ewm(span=period, adjust=False).mean()
+
+
+def compute_vwap(df: pd.DataFrame) -> pd.Series:
+    """
+    Volume-weighted average price.
+    For daily data, computes a rolling cumulative VWAP.
+    """
+    typical_price = (df["High"] + df["Low"] + df["Close"]) / 3.0
+    vol = df["Volume"].replace(0, np.nan).fillna(1)
+    cum_tp_vol = (typical_price * vol).cumsum()
+    cum_vol = vol.cumsum()
+    return cum_tp_vol / cum_vol
+
+
+def bb_squeeze_detected(df: pd.DataFrame, period: int = 20, std: float = 2.0,
+                        squeeze_threshold: float = 0.5) -> bool:
+    """
+    Detect Bollinger Band squeeze: bandwidth narrows then expands.
+    Returns True if a squeeze-to-expansion just happened.
+    """
+    upper, middle, lower = compute_bollinger_bands(df, period, std)
+    bandwidth = (upper - lower) / middle * 100
+    if len(bandwidth.dropna()) < 5:
+        return False
+    recent_bw = bandwidth.iloc[-1]
+    min_bw = bandwidth.iloc[-20:].min() if len(bandwidth) >= 20 else bandwidth.min()
+    avg_bw = bandwidth.iloc[-20:].mean() if len(bandwidth) >= 20 else bandwidth.mean()
+    # Squeeze: recent bandwidth was near the minimum, now expanding
+    was_squeezed = min_bw < avg_bw * squeeze_threshold
+    is_expanding = recent_bw > min_bw * 1.3
+    return was_squeezed and is_expanding
+
+
+def compute_macd(df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9):
+    """Compute MACD line, signal line, and histogram."""
+    ema_fast = df["Close"].ewm(span=fast, adjust=False).mean()
+    ema_slow = df["Close"].ewm(span=slow, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    histogram = macd_line - signal_line
+    return macd_line, signal_line, histogram
+
+
+def compute_obv(df: pd.DataFrame) -> pd.Series:
+    """Compute On-Balance Volume."""
+    direction = np.sign(df["Close"].diff()).fillna(0)
+    vol = df["Volume"].fillna(0)
+    obv = (direction * vol).cumsum()
+    return obv
+
+
+def detect_rsi_divergence(df: pd.DataFrame, rsi_series: pd.Series, lookback: int = 14):
+    """
+    Detect RSI divergence over the lookback window.
+    Returns 'bullish', 'bearish', or None.
+    """
+    if len(df) < lookback + 1 or len(rsi_series) < lookback + 1:
+        return None
+
+    prices = df["Close"].iloc[-lookback:]
+    rsis = rsi_series.iloc[-lookback:]
+
+    # Find two lowest price points
+    price_min_idx = prices.idxmin()
+    # Get the second lowest: exclude a window around the min
+    remaining = prices.drop(price_min_idx, errors="ignore")
+    if len(remaining) < 2:
+        return None
+
+    # Bullish: price makes lower low but RSI makes higher low
+    # Compare first half vs second half
+    mid = lookback // 2
+    first_half_price = prices.iloc[:mid]
+    second_half_price = prices.iloc[mid:]
+    first_half_rsi = rsis.iloc[:mid]
+    second_half_rsi = rsis.iloc[mid:]
+
+    if len(first_half_price) == 0 or len(second_half_price) == 0:
+        return None
+
+    price_low1 = first_half_price.min()
+    price_low2 = second_half_price.min()
+    rsi_low1 = first_half_rsi.min()
+    rsi_low2 = second_half_rsi.min()
+
+    price_high1 = first_half_price.max()
+    price_high2 = second_half_price.max()
+    rsi_high1 = first_half_rsi.max()
+    rsi_high2 = second_half_rsi.max()
+
+    # Bullish divergence: price lower low, RSI higher low
+    if price_low2 < price_low1 and rsi_low2 > rsi_low1:
+        return "bullish"
+
+    # Bearish divergence: price higher high, RSI lower high
+    if price_high2 > price_high1 and rsi_high2 < rsi_high1:
+        return "bearish"
+
+    return None
+
+
 def compute_rsi(df: pd.DataFrame, period: int = 14) -> float:
     """
     Compute RSI (Relative Strength Index) for the most recent bar.

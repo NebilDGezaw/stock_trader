@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import config
 from data.fetcher import StockDataFetcher
 from strategies.smc_strategy import SMCStrategy
+from strategies.leveraged_momentum import LeveragedMomentumStrategy
 from models.signals import TradeAction, MarketBias
 
 
@@ -77,11 +78,16 @@ BIAS_EMOJI = {
 
 
 def analyze_ticker(ticker: str, period: str = "6mo", interval: str = "1d",
-                   stock_mode: bool = False):
-    """Run SMC analysis on a single ticker. Returns (strategy, setup) or None."""
+                   stock_mode: bool = False, leveraged: bool = False):
+    """Run analysis on a single ticker. Returns (strategy, setup) or None."""
     try:
         df = StockDataFetcher(ticker).fetch(period=period, interval=interval)
-        strategy = SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
+        # Auto-detect leveraged tickers
+        use_leveraged = leveraged or (ticker.upper() in config.LEVERAGED_TICKERS)
+        if use_leveraged:
+            strategy = LeveragedMomentumStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
+        else:
+            strategy = SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
         return strategy, strategy.trade_setup
     except Exception as e:
         print(f"  [!] Error analyzing {ticker}: {e}")
@@ -235,6 +241,8 @@ def main():
     parser.add_argument("--always-report", nargs="*", default=[],
                         help="Tickers to always report regardless of signal (e.g. MSTU MSTR TSLL)")
     parser.add_argument("--label", type=str, default="", help="Custom title for the alert header")
+    parser.add_argument("--leveraged", action="store_true",
+                        help="Use LeveragedMomentumStrategy (auto-detected for LEVERAGED_TICKERS)")
     parser.add_argument("--dry-run", action="store_true", help="Print messages without sending")
     args = parser.parse_args()
 
@@ -281,7 +289,8 @@ def main():
     for t in tickers:
         print(f"  Analyzing {t}...", end=" ")
         strategy, setup = analyze_ticker(t, args.period, args.interval,
-                                         stock_mode=args.stock_mode)
+                                         stock_mode=args.stock_mode,
+                                         leveraged=args.leveraged)
         if setup:
             results.append({"ticker": t, "setup": setup, "strategy": strategy})
             print(f"{setup.action.value} (score: {setup.composite_score}, R:R=1:{setup.risk_reward})")

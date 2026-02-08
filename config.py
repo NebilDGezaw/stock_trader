@@ -169,3 +169,121 @@ STOCK_MODE = {
     # Risk
     "min_risk_reward": 1.5,      # was 2.0 — medium risk tolerance
 }
+
+# ──────────────────────────────────────────────
+#  Leveraged ETF Mode (Momentum / Mean-Reversion)
+# ──────────────────────────────────────────────
+LEVERAGED_MODE = {
+    # RSI — widened zones to catch more entries on volatile products
+    "rsi_period": 14,
+    "rsi_oversold": 35,             # was 30
+    "rsi_overbought": 65,           # was 70
+    "rsi_extreme_oversold": 25,     # was 20
+    "rsi_extreme_overbought": 75,   # was 80
+
+    # Bollinger Bands
+    "bb_period": 20,
+    "bb_std": 2.0,
+    "bb_extreme_std": 1.0,          # NEW: extra signal when price > 1 std beyond band
+    "bb_extreme_rsi_bull": 40,       # RSI < this + below lower BB = strong bounce
+    "bb_extreme_rsi_bear": 60,       # RSI > this + above upper BB = strong reversal
+
+    # EMA — dual pair for faster signals
+    "ema_fast": 9,
+    "ema_slow": 21,
+    "ema_ultra_fast": 5,            # NEW: 5/13 catches momentum earlier
+    "ema_ultra_slow": 13,
+
+    # ATR stops — tighter TP for more frequent wins, trail for runners
+    "atr_period": 14,
+    "atr_sl_multiplier": 1.0,
+    "atr_tp_multiplier": 2.0,      # keep at 2.0 — 1.5 was too tight
+    "trailing_stop": False,         # Disabled — hurts more than helps with tight TP
+    "trail_activation_atr": 1.2,    # move SL to breakeven after 1.2x ATR
+    "trail_distance_atr": 0.75,     # then trail at 0.75x ATR behind price
+
+    # Volume
+    "volume_lookback": 20,
+    "volume_multiplier": 1.2,       # was 1.3 — slightly more permissive
+
+    # Mean-reversion on big moves — NEW
+    "mean_reversion": True,
+    "big_move_threshold": 0.05,     # 5% single-day move triggers bounce signal
+    "big_move_score": 2,
+
+    # Scoring — much lower thresholds for more trades
+    "score_thresholds": {
+        "strong_buy": 4,            # was 5
+        "buy": 2,                   # was 3
+        "neutral": 1,               # was 2
+        "sell": 2,                  # was 3
+        "strong_sell": 4,           # was 5
+    },
+
+    # Risk — more aggressive for leveraged products
+    "risk_per_trade": 0.03,         # 3% per trade (was 2%)
+}
+
+LEVERAGED_TICKERS = ["MSTU", "MSTR", "MSTZ", "TSLL"]
+
+# ──────────────────────────────────────────────
+#  Crypto Momentum Mode
+# ──────────────────────────────────────────────
+CRYPTO_MODE = {
+    "ema_fast": 9,
+    "ema_mid": 21,
+    "ema_slow": 50,
+    "rsi_period": 14,
+    "rsi_oversold": 40,
+    "rsi_overbought": 60,
+    "rsi_extreme_oversold": 25,
+    "rsi_extreme_overbought": 75,
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9,
+    "bb_period": 20,
+    "bb_std": 2.0,
+    "volume_lookback": 20,
+    "volume_spike_multiplier": 2.0,
+    "atr_period": 14,
+    "atr_sl_multiplier": 1.5,
+    "atr_tp_multiplier": 3.0,
+    "trailing_stop": True,
+    "trail_activation_atr": 1.5,
+    "trail_distance_atr": 1.0,
+    "exhaustion_consecutive_days": 5,
+    "score_thresholds": {
+        "strong_buy": 5,
+        "buy": 3,
+        "neutral": 2,
+        "sell": 3,
+        "strong_sell": 5,
+    },
+    "risk_per_trade": 0.02,
+}
+
+CRYPTO_TICKERS = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD", "DOGE-USD", "ADA-USD"]
+
+# ──────────────────────────────────────────────
+#  Forex ICT Mode (1h candles, kill-zone driven)
+# ──────────────────────────────────────────────
+FOREX_MODE = {
+    "swing_lookback": 3,
+    "fvg_min_gap_pct": 0.02,
+    "ob_proximity": 0.005,
+    "atr_period": 14,
+    "atr_sl_multiplier": 1.0,
+    "atr_tp_multiplier": 2.0,
+    "kill_zone_multiplier": 2.0,
+    "off_session_multiplier": 0.5,
+    "asian_penalty": 1,
+    "overlap_bonus": 1,
+    "score_thresholds": {
+        "strong_buy": 6,
+        "buy": 4,
+        "neutral": 2,
+        "sell": 4,
+        "strong_sell": 6,
+    },
+    "risk_per_trade": 0.02,
+}

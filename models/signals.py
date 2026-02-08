@@ -26,6 +26,20 @@ class SignalType(Enum):
     PREMIUM_ZONE = "premium_zone"
     DISCOUNT_ZONE = "discount_zone"
     KILL_ZONE = "kill_zone"
+    # Leveraged ETF strategy signals
+    RSI_SIGNAL = "rsi_signal"
+    BOLLINGER_BAND = "bollinger_band"
+    EMA_CROSSOVER = "ema_crossover"
+    VOLUME_MOMENTUM = "volume_momentum"
+    BB_SQUEEZE = "bb_squeeze"
+    MEAN_REVERSION = "mean_reversion"
+    FAST_EMA_CROSSOVER = "fast_ema_crossover"
+    # Crypto momentum strategy signals
+    MACD_CROSSOVER = "macd_crossover"
+    RSI_DIVERGENCE = "rsi_divergence"
+    OBV_TREND = "obv_trend"
+    EXHAUSTION_WARNING = "exhaustion_warning"
+    EMA_RIBBON = "ema_ribbon"
 
 
 class TradeAction(Enum):
