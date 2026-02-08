@@ -6,7 +6,7 @@ Feeds historical data through the existing SMCStrategy class and
 simulates position management with SL/TP/signal-based exits.
 
 Usage:
-    from backtesting.engine import BacktestEngine
+    from bt_engine.engine import BacktestEngine
     engine = BacktestEngine("SPY", period="2y", interval="1d", stock_mode=True)
     engine.run()
     print(engine.summary())

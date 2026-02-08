@@ -2,14 +2,14 @@
 CLI runner for the backtesting engine.
 
 Usage:
-    python -m backtesting.runner --ticker AAPL --period 2y --interval 1d --stock-mode
-    python -m backtesting.runner --scan AAPL MSFT TSLA --period 2y
+    python -m bt_engine.runner --ticker AAPL --period 2y --interval 1d --stock-mode
+    python -m bt_engine.runner --scan AAPL MSFT TSLA --period 2y
 """
 
 import argparse
 import sys
 
-from backtesting.engine import BacktestEngine, run_multi, comparison_table
+from bt_engine.engine import BacktestEngine, run_multi, comparison_table
 from strategies.leveraged_momentum import LeveragedMomentumStrategy
 from strategies.crypto_momentum import CryptoMomentumStrategy
 from strategies.forex_ict import ForexICTStrategy
