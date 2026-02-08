@@ -51,6 +51,7 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+/* ═══════════ Base / Desktop ═══════════ */
 .stApp { background: #0a0e17; }
 
 section[data-testid="stSidebar"] {
@@ -128,6 +129,146 @@ div[data-testid="stMetric"] label {
 .scanner-action { font-size: 0.8rem; font-weight: 600; padding: 4px 10px; border-radius: 6px; text-align: center; }
 .scanner-score { font-size: 0.95rem; font-weight: 600; color: #e2e8f0; text-align: center; }
 .scanner-details { font-size: 0.78rem; color: #94a3b8; }
+
+/* ═══════════ Mobile Responsive ═══════════ */
+
+/* Tablets (≤ 900px) */
+@media (max-width: 900px) {
+    .scanner-row {
+        grid-template-columns: 70px 100px 90px 60px 1fr;
+        padding: 10px 12px;
+        gap: 8px;
+    }
+    .scanner-ticker { font-size: 0.95rem; }
+    .scanner-details { font-size: 0.72rem; }
+}
+
+/* Phones (≤ 640px) */
+@media (max-width: 640px) {
+    /* Main container: reduce padding */
+    .block-container {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+        padding-top: 1rem !important;
+    }
+
+    /* Header text: scale down */
+    .stApp h1 { font-size: 1.3rem !important; }
+    .stApp h2 { font-size: 1.1rem !important; }
+    .stApp h3 { font-size: 1rem !important; }
+
+    /* Metric cards: compact */
+    div[data-testid="stMetric"] {
+        padding: 10px 12px;
+        border-radius: 8px;
+    }
+    div[data-testid="stMetric"] label {
+        font-size: 0.65rem !important;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+        font-size: 1rem !important;
+    }
+
+    /* Scanner rows: stack vertically on phones */
+    .scanner-row {
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto auto auto;
+        padding: 12px;
+        gap: 6px 10px;
+    }
+    .scanner-ticker {
+        font-size: 1rem;
+        grid-column: 1;
+        grid-row: 1;
+    }
+    .scanner-action {
+        grid-column: 2;
+        grid-row: 1;
+        justify-self: end;
+    }
+    .scanner-score {
+        grid-column: 1;
+        grid-row: 2;
+        text-align: left;
+        font-size: 0.85rem;
+    }
+    .scanner-details {
+        grid-column: 1 / -1;
+        grid-row: 3;
+        font-size: 0.72rem;
+        word-break: break-word;
+    }
+
+    /* Action badge: smaller */
+    .action-badge {
+        padding: 6px 16px;
+        font-size: 1rem;
+    }
+
+    /* Signal cards: tighter */
+    .signal-card {
+        padding: 10px 12px;
+        gap: 8px;
+    }
+    .signal-icon {
+        width: 30px;
+        height: 30px;
+        font-size: 0.9rem;
+    }
+    .signal-type { font-size: 0.7rem; }
+    .signal-detail { font-size: 0.68rem; }
+    .signal-score { font-size: 0.75rem; padding: 3px 8px; }
+
+    /* Info boxes: tighter */
+    .info-box {
+        padding: 14px;
+        border-radius: 8px;
+    }
+    .info-row { font-size: 0.75rem; padding: 5px 0; }
+    .info-box h4 { font-size: 0.8rem; }
+
+    /* Bias badge: smaller */
+    .bias-badge {
+        padding: 3px 10px;
+        font-size: 0.75rem;
+    }
+
+    /* Tabs: smaller text */
+    .stTabs [data-baseweb="tab"] {
+        font-size: 0.8rem !important;
+        padding: 8px 12px !important;
+    }
+
+    /* Tables: horizontal scroll */
+    .stDataFrame {
+        overflow-x: auto !important;
+    }
+
+    /* Plotly charts: minimum height */
+    .js-plotly-plot {
+        min-height: 250px;
+    }
+}
+
+/* Very small phones (≤ 400px) */
+@media (max-width: 400px) {
+    .block-container {
+        padding-left: 0.25rem !important;
+        padding-right: 0.25rem !important;
+    }
+    .scanner-row {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+    }
+    .scanner-ticker { grid-column: 1; }
+    .scanner-action { grid-column: 1; justify-self: start; }
+    .scanner-score { grid-column: 1; }
+    .scanner-details { grid-column: 1; }
+
+    div[data-testid="stMetric"] {
+        padding: 8px 10px;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -383,9 +524,39 @@ with st.sidebar:
         )
         dw = DAILY_SESSIONS[selected_session]
         st.caption(", ".join(dw["tickers"]))
-        st.info(f"Interval: **{INTERVAL_LABELS.get(dw['interval'], dw['interval'])}** · Period: **{PERIOD_LABELS.get(dw['period'], dw['period'])}**", icon="⏱️")
         if dw["stock_mode"]:
             st.info("**Stock Mode** active — medium risk, ATR stops, trend momentum", icon="🏛️")
+
+        # Optional timeframe override
+        st.subheader("Timeframe", divider="gray")
+        da_override = st.toggle(
+            "Override default interval",
+            value=False,
+            key=f"da_override_{asset_class}",
+        )
+        if da_override:
+            da_intervals = ["1m", "5m", "15m", "30m", "1h", "1d", "1wk"]
+            da_default_idx = da_intervals.index(dw["interval"]) if dw["interval"] in da_intervals else 4
+            da_interval = st.selectbox(
+                "Interval",
+                da_intervals,
+                index=da_default_idx,
+                format_func=lambda x: INTERVAL_LABELS.get(x, x),
+                key=f"da_interval_{asset_class}",
+            )
+            da_valid_periods = PERIODS_FOR_INTERVAL.get(da_interval, ["1mo", "3mo", "6mo", "1y"])
+            da_period = st.selectbox(
+                "Period",
+                da_valid_periods,
+                index=min(len(da_valid_periods) - 1, 2),
+                format_func=lambda x: PERIOD_LABELS.get(x, x),
+                key=f"da_period_{asset_class}_{da_interval}",
+            )
+        else:
+            da_interval = dw["interval"]
+            da_period = dw["period"]
+
+        st.info(f"Interval: **{INTERVAL_LABELS.get(da_interval, da_interval)}** · Period: **{PERIOD_LABELS.get(da_period, da_period)}**", icon="⏱️")
 
     elif mode == "🔍 Search Ticker":
         st.subheader("Ticker", divider="gray")
@@ -544,13 +715,17 @@ if mode == "📊 Daily Analysis":
         st.session_state.scan_results = None
         st.session_state.scan_session = session_key
 
+    # Use the (possibly overridden) interval and period
+    eff_interval = da_interval
+    eff_period = da_period
+
     st.markdown(
         f'<div style="margin-bottom:20px;">'
         f'<span style="font-size:1.8rem;font-weight:800;color:#e2e8f0;">'
         f'{selected_session}</span>'
         f'<span style="color:#64748b;font-size:0.85rem;margin-left:16px;">'
-        f'{len(dw["tickers"])} tickers · {PERIOD_LABELS.get(dw["period"], dw["period"])} · '
-        f'{INTERVAL_LABELS.get(dw["interval"], dw["interval"])}</span>'
+        f'{len(dw["tickers"])} tickers · {PERIOD_LABELS.get(eff_period, eff_period)} · '
+        f'{INTERVAL_LABELS.get(eff_interval, eff_interval)}</span>'
         + (' <span style="font-size:0.65rem;color:#a78bfa;background:rgba(167,139,250,0.15);padding:2px 8px;border-radius:4px;margin-left:8px;">STOCK MODE</span>' if session_stock_mode else '')
         + '</div>',
         unsafe_allow_html=True,
@@ -567,7 +742,7 @@ if mode == "📊 Daily Analysis":
         st.rerun()
 
     if run_clicked:
-        results = run_scan(dw["tickers"], dw["period"], dw["interval"], stock_mode=session_stock_mode)
+        results = run_scan(dw["tickers"], eff_period, eff_interval, stock_mode=session_stock_mode)
         st.session_state.scan_results = results
         st.session_state.scan_session = session_key
 
@@ -614,10 +789,10 @@ elif mode == "🔍 Search Ticker":
 
         mode_tag = '<span style="font-size:0.65rem;color:#a78bfa;background:rgba(167,139,250,0.15);padding:2px 8px;border-radius:4px;margin-left:8px;">STOCK MODE</span>' if use_stock_mode else ""
         st.markdown(
-            f'<div style="display:flex;align-items:baseline;gap:16px;margin-bottom:4px;">'
-            f'<span style="font-size:2rem;font-weight:800;color:#e2e8f0;">{ticker}</span>'
-            f'<span style="font-size:1.8rem;font-weight:700;color:#e2e8f0;">{fmt_price(price, currency_sym)}</span>'
-            f'<span style="font-size:1rem;font-weight:600;color:{color};">{sign}{chg:.2f} ({sign}{chg_pct:.2f}%)</span>'
+            f'<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;margin-bottom:4px;">'
+            f'<span style="font-size:clamp(1.3rem,4vw,2rem);font-weight:800;color:#e2e8f0;">{ticker}</span>'
+            f'<span style="font-size:clamp(1.1rem,3.5vw,1.8rem);font-weight:700;color:#e2e8f0;">{fmt_price(price, currency_sym)}</span>'
+            f'<span style="font-size:clamp(0.75rem,2.5vw,1rem);font-weight:600;color:{color};">{sign}{chg:.2f} ({sign}{chg_pct:.2f}%)</span>'
             f'<span style="font-size:0.75rem;color:#64748b;background:#1e293b;padding:3px 10px;border-radius:5px;">'
             f'{ac_icon} {asset_class}</span>{mode_tag}</div>',
             unsafe_allow_html=True,
@@ -628,11 +803,11 @@ elif mode == "🔍 Search Ticker":
         trend_html = f'<span style="color:#94a3b8;font-size:0.78rem;margin-left:12px;">{trend}</span>' if trend else ""
 
         st.markdown(
-            f'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+            f'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
             f'<span class="bias-badge {bias_class(setup.bias)}">{setup.bias.value.upper()} BIAS</span>'
-            f'<span style="font-size:0.78rem;">Confidence: {conf}</span>'
+            f'<span style="font-size:clamp(0.65rem,2vw,0.78rem);">Confidence: {conf}</span>'
             f'{trend_html}'
-            f'<span style="color:#64748b;font-size:0.78rem;">'
+            f'<span style="color:#64748b;font-size:clamp(0.65rem,2vw,0.78rem);">'
             f'{len(df)} candles · {PERIOD_LABELS.get(period, period)} · {INTERVAL_LABELS.get(interval, interval)}</span></div>',
             unsafe_allow_html=True,
         )
