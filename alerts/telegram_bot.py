@@ -87,12 +87,21 @@ def analyze_ticker(ticker: str, period: str = "6mo", interval: str = "1d"):
         return None, None
 
 
+MIN_RISK_REWARD = 2.0  # Minimum 1:2 R:R to send an alert
+
+
 def is_actionable(setup) -> bool:
-    """Only alert on actual buy/sell signals, not holds."""
-    return setup and setup.action in (
+    """Only alert on buy/sell signals with at least 1:2 risk-reward."""
+    if not setup:
+        return False
+    if setup.action not in (
         TradeAction.STRONG_BUY, TradeAction.BUY,
         TradeAction.SELL, TradeAction.STRONG_SELL,
-    )
+    ):
+        return False
+    if setup.risk_reward < MIN_RISK_REWARD:
+        return False
+    return True
 
 
 def format_alert(setup, strategy) -> str:
@@ -147,6 +156,7 @@ def format_summary(results: list) -> str:
         f"🕐 {now}\n"
         f"{'─' * 28}\n"
         f"Scanned: <b>{len(results)}</b> tickers\n"
+        f"Filter: R:R ≥ 1:{MIN_RISK_REWARD:.0f}\n"
         f"Actionable: <b>{len(actionable)}</b>  "
         f"(🟢 {buys} buy  |  🔴 {sells} sell)\n"
         f"{'─' * 28}\n"
@@ -159,7 +169,7 @@ def format_no_signals() -> str:
         f"📊 <b>Stock Trader — Market Scan</b>\n"
         f"🕐 {now}\n"
         f"{'─' * 28}\n"
-        f"🟡 No actionable signals found today.\n"
+        f"🟡 No signals with R:R ≥ 1:{MIN_RISK_REWARD:.0f} found.\n"
         f"All positions: <b>HOLD</b>\n"
     )
 
