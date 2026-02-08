@@ -23,15 +23,29 @@ source venv/bin/activate   # macOS/Linux
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Run analysis on a ticker
+# 3. Launch the web dashboard (recommended)
+streamlit run ui/dashboard.py
+
+# 4. Or use the CLI — analyze a single ticker
 python main.py --ticker AAPL
 
-# 4. Scan multiple tickers
+# 5. CLI — scan multiple tickers
 python main.py --scan AAPL MSFT TSLA GOOGL AMZN
 
-# 5. Change timeframe
+# 6. CLI — change timeframe
 python main.py --ticker SPY --interval 1h --period 1mo
 ```
+
+## Web Dashboard
+
+The Streamlit dashboard provides a full interactive experience:
+
+- **Interactive candlestick chart** with Plotly — zoom, pan, hover for OHLCV
+- **SMC overlays** toggled from the sidebar: order blocks, FVGs, liquidity levels, swing structure, premium/discount zones, entry/SL/TP lines
+- **Score gauge** showing bullish vs bearish composite breakdown
+- **Signal cards** listing every detected ICT signal with type, score, and details
+- **Multi-ticker scanner** to scan a watchlist and rank by signal strength
+- **Detailed panels** for market structure, order blocks, FVGs, and liquidity stats
 
 ## Project Structure
 
@@ -52,6 +66,9 @@ stock_trader/
 │   └── signals.py           # Signal & trade data models
 ├── trader/
 │   └── decision_engine.py   # Trade decisions & risk mgmt
+├── ui/
+│   ├── dashboard.py         # Streamlit web dashboard
+│   └── charts.py            # Plotly chart rendering + overlays
 └── utils/
     └── helpers.py           # Shared utilities
 ```
