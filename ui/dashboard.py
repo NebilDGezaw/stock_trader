@@ -14,8 +14,8 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 # Force-reload config to avoid stale cached module
-for _mod in ["config", "strategies.smc_strategy", "utils.helpers"]:
-    if _mod in sys.modules:
+for _mod in list(sys.modules.keys()):
+    if any(_mod.startswith(p) for p in ["config", "strategies", "utils", "models", "data", "trader", "backtesting", "alerts"]):
         del sys.modules[_mod]
 
 import config
