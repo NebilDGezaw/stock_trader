@@ -131,3 +131,41 @@ SIGNAL_SCORE_THRESHOLDS = {
     "sell": 5,
     "strong_sell": 7,
 }
+
+# ──────────────────────────────────────────────
+#  Stock Mode (medium-risk overrides)
+# ──────────────────────────────────────────────
+# Daily stock candles have wider wicks from gaps/pre-market than forex.
+# Leveraged ETFs (MSTU, MSTR, TSLL) are even more volatile.
+# These overrides relax the fakeout filters and scoring for stocks.
+STOCK_MODE = {
+    # Relaxed fakeout thresholds — stock candles naturally have more wicks
+    "fakeout_displacement_min_body": 0.38,   # was 0.55 — stocks gap more
+    "fakeout_volume_multiplier": 1.0,        # was 1.2 — just above avg is fine
+    "fakeout_sweep_reversal_body": 0.35,     # was 0.50 — sweeps are choppier
+
+    # Lower score thresholds — so more signals trigger buy/sell
+    "score_thresholds": {
+        "strong_buy": 5,    # was 7
+        "buy": 3,           # was 5
+        "neutral": 2,       # was 3
+        "sell": 3,          # was 5
+        "strong_sell": 5,   # was 7
+    },
+
+    # ATR-based SL/TP — much better R:R than swing-point SL/TP for stocks
+    "use_atr_sl_tp": True,
+    "atr_period": 14,
+    "atr_sl_multiplier": 1.5,    # SL = 1.5 × ATR below/above entry
+    "atr_tp_multiplier": 3.0,    # TP = 3.0 × ATR — targets 1:2 R:R naturally
+
+    # Trend momentum bonus — align with the macro trend
+    "trend_sma_period": 20,      # 20-day SMA
+    "trend_bonus_score": 2,      # +2 to aligned signals
+
+    # Skip kill-zone penalty for stocks (daily candles aren't time-stamped intraday)
+    "skip_killzone_penalty": True,
+
+    # Risk
+    "min_risk_reward": 1.5,      # was 2.0 — medium risk tolerance
+}

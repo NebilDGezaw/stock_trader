@@ -248,3 +248,74 @@ def count_consecutive_breaks(df: pd.DataFrame, bar_idx: int, level: float,
         elif direction == "below" and close < level:
             count += 1
     return count
+
+
+# ──────────────────────────────────────────────────────────
+#  Stock Mode Helpers — ATR & Trend
+# ──────────────────────────────────────────────────────────
+
+def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    """
+    Compute Average True Range (ATR).
+    ATR measures volatility and is used for dynamic SL/TP sizing.
+    """
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"].shift(1)
+
+    tr1 = high - low
+    tr2 = (high - close).abs()
+    tr3 = (low - close).abs()
+
+    true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = true_range.rolling(window=period, min_periods=1).mean()
+    return atr
+
+
+def trend_sma_bias(df: pd.DataFrame, period: int = 20) -> str:
+    """
+    Determine macro trend using Simple Moving Average.
+    - Price above SMA → bullish trend
+    - Price below SMA → bearish trend
+    - Returns 'bullish', 'bearish', or 'neutral'
+    """
+    if len(df) < period:
+        return "neutral"
+
+    sma = df["Close"].rolling(window=period).mean()
+    current_price = df.iloc[-1]["Close"]
+    current_sma = sma.iloc[-1]
+
+    if pd.isna(current_sma):
+        return "neutral"
+
+    # Also check slope — is the SMA itself trending?
+    if len(sma.dropna()) >= 3:
+        sma_slope = sma.iloc[-1] - sma.iloc[-3]
+    else:
+        sma_slope = 0
+
+    if current_price > current_sma and sma_slope > 0:
+        return "bullish"
+    elif current_price < current_sma and sma_slope < 0:
+        return "bearish"
+    else:
+        return "neutral"
+
+
+def compute_rsi(df: pd.DataFrame, period: int = 14) -> float:
+    """
+    Compute RSI (Relative Strength Index) for the most recent bar.
+    Used as a momentum filter — avoids buying overbought or selling oversold.
+    """
+    delta = df["Close"].diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta).where(delta < 0, 0.0)
+
+    avg_gain = gain.rolling(window=period, min_periods=1).mean()
+    avg_loss = loss.rolling(window=period, min_periods=1).mean()
+
+    rs = avg_gain / avg_loss.replace(0, np.inf)
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+
+    return float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else 50.0

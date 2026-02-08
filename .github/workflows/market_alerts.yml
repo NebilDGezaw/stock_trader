@@ -53,6 +53,8 @@ jobs:
         run: >-
           python -m alerts.telegram_bot
           --tickers MSTU MSTR TSLL SPY AAPL MSFT TSLA GOOGL NVDA META
+          --stock-mode
+          --always-report MSTU MSTR TSLL
           --label "🏛️ US Stocks — NY Open"
           --interval 1d --period 6mo
 

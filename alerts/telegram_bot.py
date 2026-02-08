@@ -76,11 +76,12 @@ BIAS_EMOJI = {
 }
 
 
-def analyze_ticker(ticker: str, period: str = "6mo", interval: str = "1d"):
+def analyze_ticker(ticker: str, period: str = "6mo", interval: str = "1d",
+                   stock_mode: bool = False):
     """Run SMC analysis on a single ticker. Returns (strategy, setup) or None."""
     try:
         df = StockDataFetcher(ticker).fetch(period=period, interval=interval)
-        strategy = SMCStrategy(df, ticker=ticker).run()
+        strategy = SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
         return strategy, strategy.trade_setup
     except Exception as e:
         print(f"  [!] Error analyzing {ticker}: {e}")
@@ -154,12 +155,16 @@ def format_alert(setup, strategy) -> str:
     )
 
 
-def format_summary(results: list, label: str = "") -> str:
+def format_summary(results: list, label: str = "", min_rr: float = None) -> str:
     """Format the scan summary header."""
+    rr = min_rr if min_rr is not None else MIN_RISK_REWARD
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-    actionable = [r for r in results if is_actionable(r["setup"])]
-    buys = sum(1 for r in actionable if "BUY" in r["setup"].action.value)
-    sells = sum(1 for r in actionable if "SELL" in r["setup"].action.value)
+    actionable_count = sum(1 for r in results if r["setup"] and (
+        r["setup"].action in (TradeAction.STRONG_BUY, TradeAction.BUY,
+                              TradeAction.SELL, TradeAction.STRONG_SELL)
+    ))
+    buys = sum(1 for r in results if r["setup"] and "BUY" in r["setup"].action.value)
+    sells = sum(1 for r in results if r["setup"] and "SELL" in r["setup"].action.value)
 
     title = f"📊 <b>{label}</b>" if label else "📊 <b>Stock Trader — Market Scan</b>"
 
@@ -168,21 +173,22 @@ def format_summary(results: list, label: str = "") -> str:
         f"🕐 {now}\n"
         f"{'─' * 28}\n"
         f"Scanned: <b>{len(results)}</b> tickers\n"
-        f"Filter: R:R ≥ 1:{MIN_RISK_REWARD:.0f} + fakeout checks\n"
-        f"Actionable: <b>{len(actionable)}</b>  "
+        f"Filter: R:R ≥ 1:{rr:.1f} + fakeout checks\n"
+        f"Actionable: <b>{actionable_count}</b>  "
         f"(🟢 {buys} buy  |  🔴 {sells} sell)\n"
         f"{'─' * 28}\n"
     )
 
 
-def format_no_signals(label: str = "") -> str:
+def format_no_signals(label: str = "", min_rr: float = None) -> str:
+    rr = min_rr if min_rr is not None else MIN_RISK_REWARD
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
     title = f"📊 <b>{label}</b>" if label else "📊 <b>Stock Trader — Market Scan</b>"
     return (
         f"{title}\n"
         f"🕐 {now}\n"
         f"{'─' * 28}\n"
-        f"🟡 No signals with R:R ≥ 1:{MIN_RISK_REWARD:.0f} found.\n"
+        f"🟡 No signals with R:R ≥ 1:{rr:.1f} found.\n"
         f"All positions: <b>HOLD</b>\n"
     )
 
@@ -222,6 +228,12 @@ def main():
     parser.add_argument("--all", action="store_true", help="Scan all asset classes")
     parser.add_argument("--period", default="6mo", help="Data period")
     parser.add_argument("--interval", default="1d", help="Candle interval")
+    parser.add_argument("--stock-mode", action="store_true",
+                        help="Use medium-risk stock strategy (relaxed fakeouts, ATR SL/TP, trend bonus)")
+    parser.add_argument("--min-rr", type=float, default=None,
+                        help="Override minimum R:R (default: 2.0, stock-mode: 1.5)")
+    parser.add_argument("--always-report", nargs="*", default=[],
+                        help="Tickers to always report regardless of signal (e.g. MSTU MSTR TSLL)")
     parser.add_argument("--label", type=str, default="", help="Custom title for the alert header")
     parser.add_argument("--dry-run", action="store_true", help="Print messages without sending")
     args = parser.parse_args()
@@ -246,32 +258,65 @@ def main():
     else:
         tickers = get_watchlist(args.asset)
 
-    print(f"Scanning {len(tickers)} tickers: {', '.join(tickers)}")
-    print(f"Period: {args.period}, Interval: {args.interval}\n")
+    # Resolve min R:R
+    if args.min_rr is not None:
+        effective_min_rr = args.min_rr
+    elif args.stock_mode:
+        effective_min_rr = config.STOCK_MODE["min_risk_reward"]
+    else:
+        effective_min_rr = MIN_RISK_REWARD
+
+    always_report = {t.upper() for t in (args.always_report or [])}
+
+    mode_tag = " [STOCK MODE]" if args.stock_mode else ""
+    print(f"Scanning {len(tickers)} tickers: {', '.join(tickers)}{mode_tag}")
+    print(f"Period: {args.period}, Interval: {args.interval}")
+    print(f"Min R:R: 1:{effective_min_rr:.1f}")
+    if always_report:
+        print(f"Always report: {', '.join(sorted(always_report))}")
+    print()
 
     # Run analysis
     results = []
     for t in tickers:
         print(f"  Analyzing {t}...", end=" ")
-        strategy, setup = analyze_ticker(t, args.period, args.interval)
+        strategy, setup = analyze_ticker(t, args.period, args.interval,
+                                         stock_mode=args.stock_mode)
         if setup:
             results.append({"ticker": t, "setup": setup, "strategy": strategy})
-            print(f"{setup.action.value} (score: {setup.composite_score})")
+            print(f"{setup.action.value} (score: {setup.composite_score}, R:R=1:{setup.risk_reward})")
         else:
             print("SKIP")
 
-    # Filter actionable
-    actionable = [r for r in results if is_actionable(r["setup"])]
+    # Filter actionable — respect override R:R and always-report list
+    def is_actionable_with_overrides(r):
+        setup = r["setup"]
+        ticker = r["ticker"].upper()
+        # Always-report tickers get sent no matter what
+        if ticker in always_report:
+            return True
+        if not setup:
+            return False
+        if setup.action not in (
+            TradeAction.STRONG_BUY, TradeAction.BUY,
+            TradeAction.SELL, TradeAction.STRONG_SELL,
+        ):
+            return False
+        if setup.risk_reward < effective_min_rr:
+            return False
+        return True
+
+    actionable = [r for r in results if is_actionable_with_overrides(r)]
 
     # Build messages
     label = args.label
     messages = []
     if actionable:
-        messages.append(format_summary(results, label=label))
+        messages.append(format_summary(results, label=label, min_rr=effective_min_rr))
         for r in actionable:
             messages.append(format_alert(r["setup"], r["strategy"]))
     else:
-        messages.append(format_no_signals(label=label))
+        messages.append(format_no_signals(label=label, min_rr=effective_min_rr))
 
     # Send
     full_message = "\n".join(messages)
@@ -281,9 +326,9 @@ def main():
         # Send summary first, then individual alerts
         if args.dry_run:
             print("\n" + "=" * 40)
-            print(format_summary(results, label=label).replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", ""))
+            print(format_summary(results, label=label, min_rr=effective_min_rr).replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", ""))
         else:
-            send_telegram(token, chat_id, format_summary(results, label=label))
+            send_telegram(token, chat_id, format_summary(results, label=label, min_rr=effective_min_rr))
 
         for r in actionable:
             msg = format_alert(r["setup"], r["strategy"])

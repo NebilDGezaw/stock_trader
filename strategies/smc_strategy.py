@@ -23,6 +23,7 @@ from strategies.liquidity import LiquidityAnalyzer
 from utils.helpers import (
     is_premium, is_discount, is_in_kill_zone, get_equilibrium,
     calculate_position_size, get_active_kill_zone,
+    compute_atr, trend_sma_bias, compute_rsi,
 )
 
 
@@ -32,9 +33,12 @@ class SMCStrategy:
     produces a final trade decision.
     """
 
-    def __init__(self, df: pd.DataFrame, ticker: str = "UNKNOWN"):
+    def __init__(self, df: pd.DataFrame, ticker: str = "UNKNOWN",
+                 stock_mode: bool = False):
         self.df = df
         self.ticker = ticker
+        self.stock_mode = stock_mode
+        self._sm = config.STOCK_MODE if stock_mode else {}
         self._all_signals: list[Signal] = []
         self._bias = MarketBias.NEUTRAL
         self._bullish_score = 0
@@ -51,11 +55,17 @@ class SMCStrategy:
 
     def run(self) -> "SMCStrategy":
         """Execute the full strategy pipeline."""
+        if self.stock_mode:
+            self._apply_stock_overrides()
         self._run_sub_strategies()
         self._apply_confluence_filters()
+        if self.stock_mode:
+            self._apply_trend_momentum_bonus()
         self._apply_fakeout_filters()
         self._compute_composite_score()
         self._generate_trade_setup()
+        if self.stock_mode:
+            self._restore_config()
         return self
 
     @property
@@ -153,6 +163,83 @@ class SMCStrategy:
                 details="Active kill zone — higher probability window",
             ))
 
+    # ── stock-mode helpers ─────────────────────────────────
+
+    def _apply_stock_overrides(self):
+        """
+        Temporarily relax fakeout config for stock candles.
+        Daily stock candles have wider wicks from gaps, pre/post market
+        activity, and overall higher volatility — especially leveraged
+        ETFs like MSTU, MSTR, TSLL.
+        """
+        sm = self._sm
+        # Save originals so we can restore after
+        self._orig_config = {
+            "FAKEOUT_DISPLACEMENT_MIN_BODY": config.FAKEOUT_DISPLACEMENT_MIN_BODY,
+            "FAKEOUT_VOLUME_MULTIPLIER": config.FAKEOUT_VOLUME_MULTIPLIER,
+            "FAKEOUT_SWEEP_REVERSAL_BODY": config.FAKEOUT_SWEEP_REVERSAL_BODY,
+        }
+        config.FAKEOUT_DISPLACEMENT_MIN_BODY = sm["fakeout_displacement_min_body"]
+        config.FAKEOUT_VOLUME_MULTIPLIER = sm["fakeout_volume_multiplier"]
+        config.FAKEOUT_SWEEP_REVERSAL_BODY = sm["fakeout_sweep_reversal_body"]
+
+    def _restore_config(self):
+        """Restore original config values after stock-mode run."""
+        if hasattr(self, "_orig_config"):
+            for key, val in self._orig_config.items():
+                setattr(config, key, val)
+
+    def _apply_trend_momentum_bonus(self):
+        """
+        Stock-mode only: add a trend-alignment bonus.
+
+        If the macro trend (SMA direction) agrees with the majority of
+        ICT signals, add a conviction bonus. This rewards trend-following
+        setups and further penalises counter-trend fakeouts.
+
+        Also checks RSI to avoid overbought buys or oversold sells.
+        """
+        sm = self._sm
+        sma_period = sm.get("trend_sma_period", 20)
+        bonus = sm.get("trend_bonus_score", 2)
+
+        trend = trend_sma_bias(self.df, period=sma_period)
+        rsi = compute_rsi(self.df)
+
+        ts = self.df.index[-1]
+        price = self.df.iloc[-1]["Close"]
+
+        if trend == "bullish" and rsi < 75:
+            # Trend is up and not overbought — boost bullish signals
+            self._all_signals.append(Signal(
+                signal_type=SignalType.KILL_ZONE,  # reuse as meta signal
+                timestamp=ts,
+                price=price,
+                bias=MarketBias.BULLISH,
+                score=bonus,
+                details=f"📈 Trend momentum UP (above {sma_period}-SMA, RSI={rsi:.0f})",
+            ))
+        elif trend == "bearish" and rsi > 25:
+            # Trend is down and not oversold — boost bearish signals
+            self._all_signals.append(Signal(
+                signal_type=SignalType.KILL_ZONE,
+                timestamp=ts,
+                price=price,
+                bias=MarketBias.BEARISH,
+                score=bonus,
+                details=f"📉 Trend momentum DOWN (below {sma_period}-SMA, RSI={rsi:.0f})",
+            ))
+        elif trend == "neutral":
+            # Ranging — no bonus, add a caution note
+            self._all_signals.append(Signal(
+                signal_type=SignalType.KILL_ZONE,
+                timestamp=ts,
+                price=price,
+                bias=MarketBias.NEUTRAL,
+                score=0,
+                details=f"➡️ No clear trend (RSI={rsi:.0f}) — be selective",
+            ))
+
     def _apply_fakeout_filters(self):
         """
         Anti-fakeout layer: penalise or discard signals that lack confluence.
@@ -221,16 +308,19 @@ class SMCStrategy:
                 ))
 
         # Rule 3: Outside kill-zone penalty
-        ts = self.df.index[-1]
-        if hasattr(ts, "hour"):
-            zone = get_active_kill_zone(ts)
-            if zone is None:
-                # Outside any kill zone — signals are less reliable
-                for sig in self._all_signals:
-                    if sig.bias != MarketBias.NEUTRAL and sig.score > 1:
-                        sig.score = max(sig.score - 1, 1)
-                        if "off-session" not in sig.details:
-                            sig.details += " [off-session]"
+        # (skipped in stock mode — daily candles don't have meaningful timestamps)
+        if self.stock_mode and self._sm.get("skip_killzone_penalty", False):
+            pass
+        else:
+            ts = self.df.index[-1]
+            if hasattr(ts, "hour"):
+                zone = get_active_kill_zone(ts)
+                if zone is None:
+                    for sig in self._all_signals:
+                        if sig.bias != MarketBias.NEUTRAL and sig.score > 1:
+                            sig.score = max(sig.score - 1, 1)
+                            if "off-session" not in sig.details:
+                                sig.details += " [off-session]"
 
     def _compute_composite_score(self):
         """Tally bullish and bearish scores from all signals."""
@@ -262,7 +352,12 @@ class SMCStrategy:
 
         current_price = self.df.iloc[-1]["Close"]
         net = self.net_score
-        thresholds = config.SIGNAL_SCORE_THRESHOLDS
+
+        # Use stock-mode thresholds if active
+        if self.stock_mode:
+            thresholds = self._sm["score_thresholds"]
+        else:
+            thresholds = config.SIGNAL_SCORE_THRESHOLDS
 
         # Determine action
         if net >= thresholds["strong_buy"]:
@@ -276,8 +371,11 @@ class SMCStrategy:
         else:
             action = TradeAction.HOLD
 
-        # Determine stop loss and take profit using order blocks / structure
-        stop_loss, take_profit = self._calculate_sl_tp(current_price)
+        # Determine stop loss and take profit
+        if self.stock_mode and self._sm.get("use_atr_sl_tp", False):
+            stop_loss, take_profit = self._calculate_atr_sl_tp(current_price)
+        else:
+            stop_loss, take_profit = self._calculate_sl_tp(current_price)
 
         risk_per_share = abs(current_price - stop_loss) if stop_loss else 0
         reward_per_share = abs(take_profit - current_price) if take_profit else 0
@@ -352,5 +450,39 @@ class SMCStrategy:
             recent = self.df.tail(20)
             sl = recent["Low"].min() * 0.998
             tp = recent["High"].max() * 1.002
+
+        return sl, tp
+
+    def _calculate_atr_sl_tp(
+        self, current_price: float
+    ) -> Tuple[float, float]:
+        """
+        Stock-mode: ATR-based dynamic SL/TP.
+
+        Much better for stocks than fixed swing-point levels because:
+        - Adapts to the stock's actual volatility (TSLA vs SPY vs MSTU)
+        - Produces consistent R:R ratios
+        - Leveraged ETFs naturally get wider stops (higher ATR)
+        """
+        sm = self._sm
+        atr_period = sm.get("atr_period", 14)
+        sl_mult = sm.get("atr_sl_multiplier", 1.5)
+        tp_mult = sm.get("atr_tp_multiplier", 3.0)
+
+        atr = compute_atr(self.df, period=atr_period)
+        current_atr = float(atr.iloc[-1])
+
+        if current_atr == 0:
+            return self._calculate_sl_tp(current_price)
+
+        if self._bias == MarketBias.BULLISH:
+            sl = current_price - (current_atr * sl_mult)
+            tp = current_price + (current_atr * tp_mult)
+        elif self._bias == MarketBias.BEARISH:
+            sl = current_price + (current_atr * sl_mult)
+            tp = current_price - (current_atr * tp_mult)
+        else:
+            sl = current_price - (current_atr * sl_mult)
+            tp = current_price + (current_atr * tp_mult)
 
         return sl, tp
