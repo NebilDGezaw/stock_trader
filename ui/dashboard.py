@@ -18,33 +18,27 @@ for _mod in list(sys.modules.keys()):
     if any(_mod.startswith(p) for p in ["config", "strategies", "utils", "models", "data", "trader", "bt_engine", "backtesting", "alerts"]):
         del sys.modules[_mod]
 
+import config
+
 import streamlit as st
+import pandas as pd
+from datetime import datetime, date, timedelta
 
-# Wrap all project imports in try/except so Streamlit Cloud shows
-# the real error instead of an infinite loading spinner.
+from data.fetcher import StockDataFetcher
+from strategies.smc_strategy import SMCStrategy
+from strategies.leveraged_momentum import LeveragedMomentumStrategy
+from strategies.crypto_momentum import CryptoMomentumStrategy
+from strategies.forex_ict import ForexICTStrategy
+from models.signals import TradeAction, MarketBias, SignalType
+from ui.charts import (
+    build_main_chart,
+    build_score_gauge,
+    build_signal_breakdown,
+)
 try:
-    import config
-    import pandas as pd
-    from datetime import datetime, date, timedelta
-
-    from data.fetcher import StockDataFetcher
-    from strategies.smc_strategy import SMCStrategy
-    from strategies.leveraged_momentum import LeveragedMomentumStrategy
-    from strategies.crypto_momentum import CryptoMomentumStrategy
-    from strategies.forex_ict import ForexICTStrategy
-    from models.signals import TradeAction, MarketBias, SignalType
-    from ui.charts import (
-        build_main_chart,
-        build_score_gauge,
-        build_signal_breakdown,
-    )
-    # bt_engine is imported lazily inside the Backtest section
-    _IMPORT_OK = True
-except Exception as _import_err:
-    _IMPORT_OK = False
-    st.error(f"**Startup import error:** {_import_err}")
-    st.code(str(__import__('traceback').format_exc()))
-    st.stop()
+    from bt_engine.engine import Backtester, backtest_session, BacktestReport
+except Exception:
+    Backtester = backtest_session = BacktestReport = None
 
 # ──────────────────────────────────────────────────────────
 #  Page Configuration
@@ -606,8 +600,8 @@ def render_scanner_results(results, currency_sym, show_obs, show_fvgs,
                     height=480,
                 )
                 st.plotly_chart(ch, use_container_width=True, config={"displayModeBar": True, "displaylogo": False})
-            except Exception as e:
-                st.warning(f"Chart error for {r['ticker']}: {e}")
+            except Exception as _chart_err:
+                st.warning(f"Chart unavailable for {r['ticker']}: {_chart_err}")
 
 
 def run_scan(tickers, period, interval, stock_mode):
@@ -988,18 +982,23 @@ elif mode == "🔍 Search Ticker":
     tab_chart, tab_signals, tab_details = st.tabs(["📈 Chart", "🔔 Signals", "📋 Details"])
 
     with tab_chart:
-        chart = build_main_chart(
-            df, strategy,
-            show_order_blocks=show_obs, show_fvgs=show_fvgs,
-            show_liquidity=show_liq, show_structure=show_structure,
-            show_trade_levels=show_trade, show_premium_discount=show_pd,
-            height=620,
-        )
-        st.plotly_chart(chart, use_container_width=True, config={
-            "displayModeBar": True,
-            "modeBarButtonsToRemove": ["lasso2d", "select2d"],
-            "displaylogo": False,
-        })
+        try:
+            chart = build_main_chart(
+                df, strategy,
+                show_order_blocks=show_obs, show_fvgs=show_fvgs,
+                show_liquidity=show_liq, show_structure=show_structure,
+                show_trade_levels=show_trade, show_premium_discount=show_pd,
+                height=620,
+            )
+        except Exception as _chart_err:
+            st.warning(f"Chart rendering error: {_chart_err}")
+            chart = None
+        if chart:
+            st.plotly_chart(chart, use_container_width=True, config={
+                "displayModeBar": True,
+                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                "displaylogo": False,
+            })
 
         m1, m2, m3, m4, m5, m6 = st.columns(6)
         m1.metric("Entry", fmt_price(setup.entry_price, currency_sym))
@@ -1206,56 +1205,36 @@ elif mode == "🧪 Backtest":
     )
 
     if st.button("🚀  Run Backtest", type="primary", use_container_width=True):
-        from bt_engine.engine import BacktestEngine  # lazy import
         progress = st.progress(0, text="Starting backtest...")
         tickers = bt_dw["tickers"]
 
-        # Map each ticker to the right strategy class
-        def _strategy_for(t):
-            at = detect_asset_type(t)
-            if at == "leveraged":
-                return LeveragedMomentumStrategy
-            elif at == "crypto":
-                return CryptoMomentumStrategy
-            elif at == "forex":
-                return ForexICTStrategy
-            elif at == "commodity":
-                return CryptoMomentumStrategy  # works well on gold/silver
-            return SMCStrategy
+        def update_progress(i, total, ticker):
+            progress.progress((i + 1) / total, text=f"Backtesting {ticker}... ({i+1}/{total})")
 
-        # Run backtest for each ticker
-        engines = {}
-        for i, t in enumerate(tickers):
-            progress.progress((i + 1) / len(tickers), text=f"Backtesting {t}... ({i+1}/{len(tickers)})")
-            try:
-                eng = BacktestEngine(
-                    ticker=t,
-                    period="2y",
-                    interval=bt_interval,
-                    stock_mode=bt_dw["stock_mode"],
-                    strategy_class=_strategy_for(t),
-                )
-                eng.run()
-                engines[t] = eng
-            except Exception as e:
-                st.warning(f"Skipped **{t}**: {e}")
+        reports = backtest_session(
+            tickers=tickers,
+            start_date=str(bt_start_date),
+            end_date=str(bt_end_date),
+            interval=bt_interval,
+            lookback="3mo",
+            stock_mode=bt_dw["stock_mode"],
+            max_hold=bt_max_hold,
+            progress_callback=update_progress,
+        )
         progress.empty()
 
         # ── Aggregate metrics across all tickers ──
         all_trades = []
-        for eng in engines.values():
-            all_trades.extend(eng._trades)
+        for r in reports:
+            all_trades.extend(r.trades)
 
         total_trades = len(all_trades)
-        total_wins = sum(1 for t in all_trades if t.pnl > 0)
-        total_losses = sum(1 for t in all_trades if t.pnl <= 0 and t.exit_price > 0)
+        total_wins = sum(1 for t in all_trades if t.outcome == "WIN")
+        total_losses = sum(1 for t in all_trades if t.outcome == "LOSS")
+        total_timeouts = sum(1 for t in all_trades if t.outcome == "TIMEOUT")
         win_rate = (total_wins / total_trades * 100) if total_trades > 0 else 0
-
-        total_return = 0
-        for eng in engines.values():
-            ret = (eng._equity - eng._initial_capital) / eng._initial_capital * 100
-            total_return += ret
-        avg_return = total_return / len(engines) if engines else 0
+        total_pnl = sum(t.pnl_pct for t in all_trades)
+        avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
 
         # ── Summary metrics ──
         st.markdown(
@@ -1268,40 +1247,42 @@ elif mode == "🧪 Backtest":
         m1.metric("Total Trades", total_trades)
         m2.metric("Wins", total_wins)
         m3.metric("Losses", total_losses)
-        m4.metric("Tickers", len(engines))
+        m4.metric("Timeouts", total_timeouts)
         m5.metric("Win Rate", f"{win_rate:.1f}%")
-        m6.metric("Avg Return", f"{avg_return:+.2f}%")
+        m6.metric("Total P&L", f"{total_pnl:+.2f}%")
 
         if total_trades > 0:
-            # ── Equity curve (use the first engine's full curve as example) ──
+            # ── Equity curve ──
             st.markdown(
                 '<div class="page-header" style="margin-top:30px;">'
-                '<span class="page-header-title" style="font-size:1.3rem;">📈 Equity Curves</span></div>',
+                '<span class="page-header-title" style="font-size:1.3rem;">📈 Equity Curve (cumulative P&L)</span></div>',
                 unsafe_allow_html=True,
             )
+            sorted_trades = sorted(all_trades, key=lambda t: t.date)
+            equity = [0.0]
+            labels = ["Start"]
+            for t in sorted_trades:
+                equity.append(equity[-1] + t.pnl_pct)
+                labels.append(f"{t.ticker} ({t.date})")
+
             import plotly.graph_objects as go
             eq_fig = go.Figure()
-            colors = ["#4ade80", "#60a5fa", "#fbbf24", "#f87171", "#a78bfa",
-                      "#34d399", "#38bdf8", "#fb923c", "#e879f9", "#94a3b8"]
-            for idx, (ticker, eng) in enumerate(engines.items()):
-                ec = eng.equity_curve
-                if not ec.empty:
-                    eq_fig.add_trace(go.Scatter(
-                        x=ec["date"].astype(str) if "date" in ec.columns else list(range(len(ec))),
-                        y=ec["equity"].tolist(),
-                        mode="lines",
-                        name=ticker,
-                        line=dict(color=colors[idx % len(colors)], width=2),
-                    ))
+            eq_fig.add_trace(go.Scatter(
+                x=labels, y=equity,
+                mode="lines+markers",
+                line=dict(color="#4ade80" if equity[-1] >= 0 else "#f87171", width=2),
+                marker=dict(size=6),
+                fill="tozeroy",
+                fillcolor="rgba(74,222,128,0.1)" if equity[-1] >= 0 else "rgba(248,113,113,0.1)",
+            ))
             eq_fig.update_layout(
                 template="plotly_dark",
                 paper_bgcolor="#0a0e17",
                 plot_bgcolor="#0a0e17",
                 height=350,
-                margin=dict(l=40, r=20, t=20, b=40),
-                xaxis=dict(showgrid=False, title="Bar"),
-                yaxis=dict(title="Equity ($)", gridcolor="#1e293b"),
-                legend=dict(orientation="h", y=-0.15),
+                margin=dict(l=40, r=20, t=20, b=60),
+                xaxis=dict(showgrid=False, tickangle=-45),
+                yaxis=dict(title="Cumulative P&L (%)", gridcolor="#1e293b"),
             )
             st.plotly_chart(eq_fig, use_container_width=True, config={"displayModeBar": False})
 
@@ -1312,69 +1293,71 @@ elif mode == "🧪 Backtest":
                 unsafe_allow_html=True,
             )
 
-            for ticker, eng in engines.items():
-                closed = eng._trades
-                total = len(closed)
-                if total == 0:
+            for r in reports:
+                if r.total_trades == 0:
                     continue
-                wins = sum(1 for t in closed if t.pnl > 0)
-                wr = (wins / total * 100) if total else 0
-                ret = (eng._equity - eng._initial_capital) / eng._initial_capital * 100
-                avg_r = sum(t.r_multiple for t in closed) / total if total else 0
-
                 with st.expander(
-                    f"{'✅' if wr >= 50 else '⚠️'} {ticker} — "
-                    f"{total} trades · {wr:.0f}% win · {ret:+.2f}% return"
+                    f"{'✅' if r.win_rate >= 50 else '⚠️'} {r.ticker} — "
+                    f"{r.total_trades} trades · {r.win_rate:.0f}% win · "
+                    f"{r.total_pnl_pct:+.2f}% P&L"
                 ):
                     rc1, rc2, rc3, rc4 = st.columns(4)
-                    rc1.metric("Trades", total)
-                    rc2.metric("Win Rate", f"{wr:.0f}%")
-                    rc3.metric("Return", f"{ret:+.2f}%")
-                    rc4.metric("Avg R", f"{avg_r:+.2f}R")
+                    rc1.metric("Trades", r.total_trades)
+                    rc2.metric("Win Rate", f"{r.win_rate:.0f}%")
+                    rc3.metric("Avg P&L", f"{r.avg_pnl_pct:+.2f}%")
+                    rc4.metric("Best / Worst", f"{r.best_trade_pnl:+.1f}% / {r.worst_trade_pnl:+.1f}%")
 
-                    if closed:
+                    # Trade table
+                    if r.trades:
                         trade_data = []
-                        for t in closed:
-                            emoji = "✅" if t.pnl > 0 else "❌"
+                        for t in r.trades:
+                            outcome_emoji = {"WIN": "✅", "LOSS": "❌", "TIMEOUT": "⏰", "OPEN": "🔵"}.get(t.outcome, "")
                             trade_data.append({
-                                "Entry Date": str(t.entry_date)[:10] if t.entry_date else "",
-                                "Direction": t.direction.upper(),
+                                "Date": t.date,
+                                "Action": t.action,
                                 "Entry": f"${t.entry_price:.4f}",
                                 "SL": f"${t.stop_loss:.4f}",
                                 "TP": f"${t.take_profit:.4f}",
-                                "Exit": f"${t.exit_price:.4f}",
-                                "Exit Reason": t.exit_reason,
-                                f"{emoji} P&L": f"${t.pnl:+.2f}",
-                                "P&L %": f"{t.pnl_pct:+.2f}%",
-                                "R": f"{t.r_multiple:+.2f}",
+                                "Exit": f"${t.exit_price:.4f}" if t.exit_price > 0 else "—",
+                                "Outcome": f"{outcome_emoji} {t.outcome}",
+                                "P&L": f"{t.pnl_pct:+.2f}%",
+                                "R:R": f"{t.actual_rr:+.1f}",
+                                "Bars": t.bars_held,
+                                "Confidence": t.confidence,
+                                "Score": t.score,
                             })
                         st.dataframe(pd.DataFrame(trade_data), use_container_width=True, hide_index=True)
 
-            # ── All trades summary ──
+            # ── All trades table ──
             st.markdown(
                 '<div class="page-header" style="margin-top:30px;">'
                 '<span class="page-header-title" style="font-size:1.3rem;">📋 All Trades</span></div>',
                 unsafe_allow_html=True,
             )
-            all_data = []
-            for t in sorted(all_trades, key=lambda x: str(x.entry_date)):
-                emoji = "✅" if t.pnl > 0 else "❌"
-                all_data.append({
-                    "Ticker": t.ticker,
-                    "Date": str(t.entry_date)[:10] if t.entry_date else "",
-                    "Dir": t.direction.upper(),
-                    "Entry": f"${t.entry_price:.4f}",
-                    "Exit": f"${t.exit_price:.4f}",
-                    "Reason": t.exit_reason,
-                    f"{emoji} P&L": f"${t.pnl:+.2f}",
-                    "R": f"{t.r_multiple:+.2f}",
-                })
-            st.dataframe(pd.DataFrame(all_data), use_container_width=True, hide_index=True)
+            if all_trades:
+                all_data = []
+                for t in sorted_trades:
+                    outcome_emoji = {"WIN": "✅", "LOSS": "❌", "TIMEOUT": "⏰", "OPEN": "🔵"}.get(t.outcome, "")
+                    all_data.append({
+                        "Ticker": t.ticker,
+                        "Date": t.date,
+                        "Action": t.action,
+                        "Entry": f"${t.entry_price:.4f}",
+                        "SL": f"${t.stop_loss:.4f}",
+                        "TP": f"${t.take_profit:.4f}",
+                        "Exit": f"${t.exit_price:.4f}" if t.exit_price > 0 else "—",
+                        "Outcome": f"{outcome_emoji} {t.outcome}",
+                        "P&L": f"{t.pnl_pct:+.2f}%",
+                        "Bars": t.bars_held,
+                        "Confidence": t.confidence,
+                    })
+                st.dataframe(pd.DataFrame(all_data), use_container_width=True, hide_index=True)
 
         elif total_trades == 0:
             st.warning(
-                "No trades were generated in this backtest period. "
-                "Try a longer period or different session/tickers."
+                "No actionable trades found in this date range. "
+                "The strategy may not have generated BUY/SELL signals for these tickers "
+                "during this period. Try a wider date range or different session."
             )
 
     else:

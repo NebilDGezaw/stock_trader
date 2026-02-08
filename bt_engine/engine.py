@@ -12,10 +12,12 @@ Usage:
     print(engine.summary())
 """
 
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict
 
 import config
@@ -736,3 +738,212 @@ def comparison_table(engines: Dict[str, BacktestEngine]) -> str:
         )
     lines.append(f"{'═' * 90}")
     return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════
+#  Compatibility layer — old API used by the dashboard UI
+# ══════════════════════════════════════════════════════════
+
+@dataclass
+class BacktestTrade:
+    """A single simulated trade (old API)."""
+    ticker: str
+    date: str
+    action: str
+    entry_price: float
+    stop_loss: float
+    take_profit: float
+    planned_rr: float = 0.0
+    outcome: str = "OPEN"
+    exit_price: float = 0.0
+    exit_date: str = ""
+    pnl_pct: float = 0.0
+    actual_rr: float = 0.0
+    bars_held: int = 0
+    score: int = 0
+    bias: str = ""
+    signals_count: int = 0
+    confidence: str = ""
+
+
+@dataclass
+class BacktestReport:
+    """Aggregated backtest results (old API)."""
+    ticker: str
+    start_date: str = ""
+    end_date: str = ""
+    interval: str = ""
+    total_signals: int = 0
+    total_trades: int = 0
+    wins: int = 0
+    losses: int = 0
+    timeouts: int = 0
+    win_rate: float = 0.0
+    avg_pnl_pct: float = 0.0
+    total_pnl_pct: float = 0.0
+    avg_rr_achieved: float = 0.0
+    best_trade_pnl: float = 0.0
+    worst_trade_pnl: float = 0.0
+    avg_bars_held: float = 0.0
+    trades: list = field(default_factory=list)
+
+
+class Backtester:
+    """Old-API backtester used by the dashboard."""
+
+    def __init__(self, ticker, start_date, end_date, interval="1h",
+                 lookback="3mo", stock_mode=False, max_hold=50):
+        self.ticker = ticker
+        self.start_date = start_date
+        self.end_date = end_date
+        self.interval = interval
+        self.lookback = lookback
+        self.stock_mode = stock_mode
+        self.max_hold = max_hold
+
+    def run(self):
+        report = BacktestReport(
+            ticker=self.ticker, start_date=self.start_date,
+            end_date=self.end_date, interval=self.interval,
+        )
+        try:
+            start_dt = datetime.strptime(self.start_date, "%Y-%m-%d")
+            lookback_days = {"1mo": 35, "2mo": 65, "3mo": 95,
+                             "6mo": 185, "1y": 370}.get(self.lookback, 95)
+            fetch_start = (start_dt - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+            end_dt = datetime.strptime(self.end_date, "%Y-%m-%d")
+            fetch_end = (end_dt + timedelta(days=30)).strftime("%Y-%m-%d")
+            fetcher = StockDataFetcher(self.ticker)
+            full_df = fetcher.fetch(start=fetch_start, end=fetch_end,
+                                    interval=self.interval)
+        except Exception:
+            return report
+
+        if full_df is None or len(full_df) < 30:
+            return report
+
+        bt_start = pd.Timestamp(self.start_date)
+        bt_end = pd.Timestamp(self.end_date) + pd.Timedelta(days=1)
+        signal_mask = (full_df.index >= bt_start) & (full_df.index < bt_end)
+        signal_indices = full_df.index[signal_mask]
+        if len(signal_indices) == 0:
+            return report
+
+        unique_days = sorted(set(idx.date() for idx in signal_indices))
+        for day in unique_days:
+            day_end = pd.Timestamp(day) + pd.Timedelta(days=1)
+            history = full_df[full_df.index < day_end]
+            if len(history) < 30:
+                continue
+            try:
+                strat = SMCStrategy(history, ticker=self.ticker,
+                                    stock_mode=self.stock_mode).run()
+            except Exception:
+                continue
+            setup = strat.trade_setup
+            if setup is None:
+                continue
+            if setup.action == TradeAction.HOLD:
+                report.total_signals += 1
+                continue
+            report.total_signals += 1
+            warned = sum(1 for s in setup.signals if "⚠" in s.details)
+            conf = "HIGH" if warned == 0 else ("MODERATE" if warned <= 2 else "LOW")
+            trade = BacktestTrade(
+                ticker=self.ticker, date=str(day), action=setup.action.value,
+                entry_price=setup.entry_price, stop_loss=setup.stop_loss,
+                take_profit=setup.take_profit, planned_rr=setup.risk_reward,
+                score=setup.composite_score, bias=setup.bias.value,
+                signals_count=len(setup.signals), confidence=conf,
+            )
+            self._simulate_trade(trade, full_df, day_end)
+            report.trades.append(trade)
+
+        self._compute_metrics(report)
+        return report
+
+    def _simulate_trade(self, trade, df, entry_time):
+        future = df[df.index >= entry_time]
+        if len(future) == 0:
+            trade.outcome = "OPEN"
+            return
+        is_long = "BUY" in trade.action
+        bars = 0
+        for idx, row in future.iterrows():
+            bars += 1
+            if is_long:
+                if row["Low"] <= trade.stop_loss:
+                    trade.outcome, trade.exit_price = "LOSS", trade.stop_loss
+                    trade.exit_date = str(idx.date()) if hasattr(idx, 'date') else str(idx)
+                    trade.bars_held = bars
+                    break
+                if row["High"] >= trade.take_profit:
+                    trade.outcome, trade.exit_price = "WIN", trade.take_profit
+                    trade.exit_date = str(idx.date()) if hasattr(idx, 'date') else str(idx)
+                    trade.bars_held = bars
+                    break
+            else:
+                if row["High"] >= trade.stop_loss:
+                    trade.outcome, trade.exit_price = "LOSS", trade.stop_loss
+                    trade.exit_date = str(idx.date()) if hasattr(idx, 'date') else str(idx)
+                    trade.bars_held = bars
+                    break
+                if row["Low"] <= trade.take_profit:
+                    trade.outcome, trade.exit_price = "WIN", trade.take_profit
+                    trade.exit_date = str(idx.date()) if hasattr(idx, 'date') else str(idx)
+                    trade.bars_held = bars
+                    break
+            if bars >= self.max_hold:
+                trade.outcome, trade.exit_price = "TIMEOUT", row["Close"]
+                trade.exit_date = str(idx.date()) if hasattr(idx, 'date') else str(idx)
+                trade.bars_held = bars
+                break
+        else:
+            if len(future) > 0:
+                last = future.iloc[-1]
+                trade.outcome, trade.exit_price = "TIMEOUT", last["Close"]
+                trade.exit_date = str(future.index[-1].date()) if hasattr(future.index[-1], 'date') else str(future.index[-1])
+                trade.bars_held = len(future)
+        if trade.exit_price > 0 and trade.entry_price > 0:
+            if "BUY" in trade.action:
+                trade.pnl_pct = ((trade.exit_price - trade.entry_price) / trade.entry_price) * 100
+            else:
+                trade.pnl_pct = ((trade.entry_price - trade.exit_price) / trade.entry_price) * 100
+            risk = abs(trade.entry_price - trade.stop_loss)
+            if risk > 0:
+                reward = (trade.exit_price - trade.entry_price) if "BUY" in trade.action else (trade.entry_price - trade.exit_price)
+                trade.actual_rr = reward / risk
+
+    def _compute_metrics(self, report):
+        report.total_trades = len(report.trades)
+        if report.total_trades == 0:
+            return
+        report.wins = sum(1 for t in report.trades if t.outcome == "WIN")
+        report.losses = sum(1 for t in report.trades if t.outcome == "LOSS")
+        report.timeouts = sum(1 for t in report.trades if t.outcome == "TIMEOUT")
+        report.win_rate = (report.wins / report.total_trades) * 100
+        pnls = [t.pnl_pct for t in report.trades]
+        report.avg_pnl_pct = np.mean(pnls) if pnls else 0
+        report.total_pnl_pct = np.sum(pnls) if pnls else 0
+        report.best_trade_pnl = max(pnls) if pnls else 0
+        report.worst_trade_pnl = min(pnls) if pnls else 0
+        rrs = [t.actual_rr for t in report.trades if t.outcome in ("WIN", "LOSS")]
+        report.avg_rr_achieved = np.mean(rrs) if rrs else 0
+        bars = [t.bars_held for t in report.trades]
+        report.avg_bars_held = np.mean(bars) if bars else 0
+
+
+def backtest_session(tickers, start_date, end_date, interval="1h",
+                     lookback="3mo", stock_mode=False, max_hold=50,
+                     progress_callback=None):
+    """Run backtest for multiple tickers (old API)."""
+    reports = []
+    for i, ticker in enumerate(tickers):
+        if progress_callback:
+            progress_callback(i, len(tickers), ticker)
+        bt = Backtester(ticker=ticker, start_date=start_date,
+                        end_date=end_date, interval=interval,
+                        lookback=lookback, stock_mode=stock_mode,
+                        max_hold=max_hold)
+        reports.append(bt.run())
+    return reports

@@ -104,8 +104,6 @@ def build_main_chart(
     )
 
     # ── Overlays (safe for non-ICT strategies) ─────────────
-    # Wrap each overlay in try/except so non-ICT strategies
-    # (LeveragedMomentum, CryptoMomentum) don't crash the chart.
     try:
         if show_structure and getattr(strategy, 'structure', None):
             _add_structure_overlay(fig, df, strategy)
