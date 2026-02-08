@@ -13,6 +13,7 @@ FVG, Liquidity) with forex-specific parameters and overlays:
 Same interface as SMCStrategy: __init__(df, ticker, stock_mode), .run(),
 .trade_setup, .signals
 """
+from __future__ import annotations
 
 import pandas as pd
 import numpy as np

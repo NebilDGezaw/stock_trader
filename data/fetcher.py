@@ -1,6 +1,7 @@
 """
 Stock / Crypto / Forex data fetcher using the yfinance API.
 """
+from __future__ import annotations
 
 import yfinance as yf
 import pandas as pd

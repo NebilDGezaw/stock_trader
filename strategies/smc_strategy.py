@@ -2,11 +2,13 @@
 SMC Strategy Engine — combines all ICT / Smart Money sub-strategies
 into a unified composite score and generates trade recommendations.
 
+
 Scoring system:
 - Each sub-strategy contributes points toward a bullish or bearish score.
 - The net score determines the overall bias and signal strength.
 - Premium/discount and kill-zone filters add confluence.
 """
+from __future__ import annotations
 
 import pandas as pd
 from datetime import datetime

@@ -9,6 +9,7 @@ ICT Concept:
 
 The three-candle window is: candle_1 (left), candle_2 (middle), candle_3 (right).
 """
+from __future__ import annotations
 
 import pandas as pd
 import numpy as np

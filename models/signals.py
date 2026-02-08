@@ -1,6 +1,7 @@
 """
 Data models for trading signals, setups, and market bias.
 """
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime

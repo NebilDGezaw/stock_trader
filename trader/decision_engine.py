@@ -2,6 +2,7 @@
 Decision Engine — orchestrates the full analysis pipeline for one or more
 tickers and presents formatted results.
 """
+from __future__ import annotations
 
 import pandas as pd
 from typing import List

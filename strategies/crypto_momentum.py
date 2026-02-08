@@ -14,6 +14,7 @@ Components:
 6. Exhaustion detection (consecutive same-direction days)
 7. ATR-based dynamic SL/TP with trailing stop
 """
+from __future__ import annotations
 
 import pandas as pd
 import numpy as np

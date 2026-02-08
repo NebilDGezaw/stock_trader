@@ -8,6 +8,7 @@ ICT Concept:
 - CHoCH = price breaks in the *opposite* direction of the prevailing
           trend, signalling a potential reversal.
 """
+from __future__ import annotations
 
 import pandas as pd
 import numpy as np

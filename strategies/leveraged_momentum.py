@@ -7,6 +7,7 @@ Targets 25-40%+ annual returns with higher risk tolerance.
 Uses: RSI, dual EMA crossovers, Bollinger Bands + extreme bands,
 mean-reversion on big drops/pumps, volume momentum, trailing stops.
 """
+from __future__ import annotations
 
 import pandas as pd
 import numpy as np
