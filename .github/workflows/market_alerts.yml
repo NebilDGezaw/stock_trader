@@ -8,7 +8,7 @@ on:
     - cron: "30 14 * * 1-5"
 
     # LONDON SESSION: 8:00 AM UTC (Mon-Fri)
-    # Forex → private DM
+    # Forex → group
     - cron: "0 8 * * 1-5"
 
   # ── Manual trigger (for testing) ────────────────────────
@@ -22,12 +22,12 @@ on:
         options:
           - stocks_private
           - group_commodities_crypto
-          - london_forex
+          - group_london_forex
           - all
 
 jobs:
   # ─────────────────────────────────────────────────────────
-  #  PRIVATE DM: Stocks (daily at NY open)
+  #  PRIVATE DM: Stocks only (daily at NY open)
   #  MSTU, MSTR, TSLL always included + top US stocks
   # ─────────────────────────────────────────────────────────
   stocks-private:
@@ -87,14 +87,14 @@ jobs:
           --interval 1h --period 1mo
 
   # ─────────────────────────────────────────────────────────
-  #  PRIVATE DM: London Forex (EUR/USD, GBP/USD)
+  #  GROUP: London Forex (EUR/USD, GBP/USD)
   # ─────────────────────────────────────────────────────────
-  london-forex:
+  group-london-forex:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-
       github.event.schedule == '0 8 * * 1-5' ||
-      github.event.inputs.scan_type == 'london_forex' ||
+      github.event.inputs.scan_type == 'group_london_forex' ||
       github.event.inputs.scan_type == 'all'
 
     steps:
@@ -105,10 +105,10 @@ jobs:
           cache: "pip"
       - run: pip install yfinance pandas numpy
 
-      - name: "🇬🇧 London Forex → Private DM"
+      - name: "🇬🇧 London Forex → Group"
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: >-
           python -m alerts.telegram_bot
           --tickers EURUSD=X GBPUSD=X
