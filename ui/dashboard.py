@@ -155,26 +155,28 @@ INTERVAL_LABELS = {
 AC_ICONS = {"Stocks": "🏛️", "Crypto": "₿", "Forex": "💱", "Commodities": "🛢️"}
 
 # Default watchlists — same tickers the Telegram bot scans daily
-DAILY_WATCHLISTS = {
-    "Stocks": {
+# Organized by session to match the workflow
+DAILY_SESSIONS = {
+    "🏛️ Stocks — NY Open": {
         "tickers": ["MSTU", "MSTR", "MSTZ", "TSLL", "SPY", "AAPL", "MSFT", "TSLA", "GOOGL", "NVDA", "META"],
         "interval": "1d",
         "period": "6mo",
+        "stock_mode": True,
+        "icon": "🏛️",
     },
-    "Crypto": {
-        "tickers": ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD"],
+    "🇬🇧 London Session — Forex & Metals": {
+        "tickers": ["EURUSD=X", "GBPUSD=X", "EURGBP=X", "GBPJPY=X", "USDCHF=X", "GC=F", "SI=F"],
         "interval": "1h",
         "period": "1mo",
+        "stock_mode": False,
+        "icon": "🇬🇧",
     },
-    "Forex": {
-        "tickers": ["EURUSD=X", "GBPUSD=X", "EURGBP=X", "GBPJPY=X", "USDCHF=X"],
+    "🇺🇸 NY Session — Crypto, Metals & Forex": {
+        "tickers": ["GC=F", "SI=F", "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "USDJPY=X", "USDCAD=X", "USDCHF=X", "GBPUSD=X"],
         "interval": "1h",
         "period": "1mo",
-    },
-    "Commodities": {
-        "tickers": ["GC=F", "SI=F"],
-        "interval": "1h",
-        "period": "1mo",
+        "stock_mode": False,
+        "icon": "🇺🇸",
     },
 }
 
@@ -402,13 +404,20 @@ with st.sidebar:
             tickers_list = ac["presets"][scanner_source]
             st.caption(", ".join(tickers_list))
 
-    # Daily Analysis just shows the watchlist
+    # Daily Analysis — session-based dropdown
     if mode == "📊 Daily Analysis":
-        dw = DAILY_WATCHLISTS[asset_class]
-        st.subheader("Watchlist", divider="gray")
+        st.subheader("Session", divider="gray")
+        session_names = list(DAILY_SESSIONS.keys())
+        selected_session = st.selectbox(
+            "Select trading session",
+            session_names,
+            key="session_selector",
+            label_visibility="collapsed",
+        )
+        dw = DAILY_SESSIONS[selected_session]
         st.caption(", ".join(dw["tickers"]))
         st.info(f"Interval: **{INTERVAL_LABELS.get(dw['interval'], dw['interval'])}** · Period: **{PERIOD_LABELS.get(dw['period'], dw['period'])}**", icon="⏱️")
-        if use_stock_mode:
+        if dw["stock_mode"]:
             st.info("**Stock Mode** active — medium risk, ATR stops, trend momentum", icon="🏛️")
 
     # ── Timeframe (only for Search & Custom) ──────
@@ -456,28 +465,32 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════
 
 if mode == "📊 Daily Analysis":
-    dw = DAILY_WATCHLISTS[asset_class]
+    dw = DAILY_SESSIONS[selected_session]
+    session_icon = dw["icon"]
+    session_stock_mode = dw["stock_mode"]
 
     st.markdown(
         f'<div style="margin-bottom:20px;">'
         f'<span style="font-size:1.8rem;font-weight:800;color:#e2e8f0;">'
-        f'{ac_icon} {asset_class} — Daily Analysis</span>'
+        f'{selected_session}</span>'
         f'<span style="color:#64748b;font-size:0.85rem;margin-left:16px;">'
         f'{len(dw["tickers"])} tickers · {PERIOD_LABELS.get(dw["period"], dw["period"])} · '
         f'{INTERVAL_LABELS.get(dw["interval"], dw["interval"])}</span>'
-        + (' <span style="font-size:0.65rem;color:#a78bfa;background:rgba(167,139,250,0.15);padding:2px 8px;border-radius:4px;margin-left:8px;">STOCK MODE</span>' if use_stock_mode else '')
+        + (' <span style="font-size:0.65rem;color:#a78bfa;background:rgba(167,139,250,0.15);padding:2px 8px;border-radius:4px;margin-left:8px;">STOCK MODE</span>' if session_stock_mode else '')
         + '</div>',
         unsafe_allow_html=True,
     )
 
-    if st.button(f"🚀  Run {asset_class} Daily Analysis", type="primary", use_container_width=True):
-        results = run_scan(dw["tickers"], dw["period"], dw["interval"], stock_mode=use_stock_mode)
-        render_scanner_results(results, currency_sym, show_obs, show_fvgs,
+    if st.button(f"🚀  Run Analysis", type="primary", use_container_width=True):
+        results = run_scan(dw["tickers"], dw["period"], dw["interval"], stock_mode=session_stock_mode)
+        # Use $ for most sessions
+        scan_sym = "$" if not session_stock_mode else currency_sym
+        render_scanner_results(results, scan_sym, show_obs, show_fvgs,
                                show_liq, show_structure, show_trade, show_pd)
     else:
         st.markdown(
             f'<div style="text-align:center;padding:60px 20px;color:#64748b;">'
-            f'<div style="font-size:3rem;margin-bottom:16px;">{ac_icon}</div>'
+            f'<div style="font-size:3rem;margin-bottom:16px;">{session_icon}</div>'
             f'<div style="font-size:1.2rem;font-weight:600;color:#94a3b8;">Click the button above to scan</div>'
             f'<div style="font-size:0.85rem;margin-top:8px;">'
             f'{", ".join(dw["tickers"])}</div></div>',
