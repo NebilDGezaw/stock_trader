@@ -625,13 +625,18 @@ def render_scanner_results(results, currency_sym, show_obs, show_fvgs,
             level_label = "Trade Levels" if is_act else "Exit Levels (if you hold a position)"
             st.markdown(f"**{level_label}**")
 
+            # Calculate risk/reward distances as always-positive percentages
+            _sl_pct = abs(sel_setup.stop_loss - sel_setup.entry_price) / sel_setup.entry_price * 100 if sel_setup.entry_price else 0
+            _tp_pct = abs(sel_setup.take_profit - sel_setup.entry_price) / sel_setup.entry_price * 100 if sel_setup.entry_price else 0
+
             lc1, lc2, lc3, lc4, lc5 = st.columns(5)
             lc1.metric("Entry", fmt_price(sel_setup.entry_price, currency_sym))
             lc2.metric("Stop Loss", fmt_price(sel_setup.stop_loss, currency_sym),
-                        delta=f"{((sel_setup.stop_loss - sel_setup.entry_price) / sel_setup.entry_price * 100):+.2f}%" if sel_setup.entry_price else None,
+                        delta=f"-{_sl_pct:.2f}% risk",
                         delta_color="inverse")
             lc3.metric("Take Profit", fmt_price(sel_setup.take_profit, currency_sym),
-                        delta=f"{((sel_setup.take_profit - sel_setup.entry_price) / sel_setup.entry_price * 100):+.2f}%" if sel_setup.entry_price else None)
+                        delta=f"+{_tp_pct:.2f}% target",
+                        delta_color="normal")
             lc4.metric("R : R", f"1 : {sel_setup.risk_reward:.1f}")
             lc5.metric("Signals", f"{len(sel_setup.signals)}")
 
@@ -1084,10 +1089,15 @@ elif mode == "🔍 Search Ticker":
                 "displaylogo": False,
             })
 
+        _d_sl_pct = abs(setup.stop_loss - setup.entry_price) / setup.entry_price * 100 if setup.entry_price else 0
+        _d_tp_pct = abs(setup.take_profit - setup.entry_price) / setup.entry_price * 100 if setup.entry_price else 0
+
         m1, m2, m3, m4, m5, m6 = st.columns(6)
         m1.metric("Entry", fmt_price(setup.entry_price, currency_sym))
-        m2.metric("Stop Loss", fmt_price(setup.stop_loss, currency_sym))
-        m3.metric("Take Profit", fmt_price(setup.take_profit, currency_sym))
+        m2.metric("Stop Loss", fmt_price(setup.stop_loss, currency_sym),
+                  delta=f"-{_d_sl_pct:.2f}% risk", delta_color="inverse")
+        m3.metric("Take Profit", fmt_price(setup.take_profit, currency_sym),
+                  delta=f"+{_d_tp_pct:.2f}% target", delta_color="normal")
         m4.metric("R : R", f"1 : {setup.risk_reward:.1f}")
         m5.metric("Position", f"{setup.position_size} {position_unit}")
         m6.metric("Signals", f"{len(setup.signals)}")
