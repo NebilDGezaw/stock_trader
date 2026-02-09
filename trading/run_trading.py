@@ -187,6 +187,72 @@ def mode_entry(client: MT5Client, session_name: str, dry_run: bool):
     logger.info(f"=== Entry complete: {len(records)} trades processed ===")
 
 
+def mode_entry_local(session_name: str):
+    """
+    Local test mode: run analysis and print what would be traded.
+    No MT5 connection needed — works on Mac/Linux.
+    """
+    session = SESSIONS.get(session_name)
+    if not session:
+        logger.error(f"Unknown session: {session_name}")
+        return
+
+    print(f"\n{'═' * 60}")
+    print(f"  LOCAL TEST — {session['label']}")
+    print(f"{'═' * 60}")
+    print(f"  Tickers: {', '.join(session['tickers'])}")
+    print(f"  Interval: {session['interval']}, Period: {session['period']}")
+    print(f"{'─' * 60}\n")
+
+    from trading.symbols import to_mt5
+
+    actionable = 0
+    for ticker in session["tickers"]:
+        print(f"  Analyzing {ticker}...", end=" ")
+        strat, setup = analyze_ticker(
+            ticker, session["period"], session["interval"],
+            stock_mode=session["stock_mode"],
+        )
+
+        if setup is None:
+            print("No data / no setup")
+            continue
+
+        mt5_sym = to_mt5(ticker)
+        action = setup.action.value
+        rr = setup.risk_reward
+        score = setup.composite_score
+
+        # Lot size estimate (assuming $1000 equity, 2% risk)
+        sl_dist = abs(setup.entry_price - setup.stop_loss)
+        risk_amt = 1000 * 0.02  # $20
+
+        is_actionable = (
+            setup.action not in (TradeAction.HOLD,)
+            and rr >= config.RISK_REWARD_MIN
+        )
+
+        if is_actionable:
+            actionable += 1
+            emoji = "🟢" if "BUY" in action else "🔴"
+            print(f"{emoji} {action}")
+            print(f"    MT5 Symbol : {mt5_sym}")
+            print(f"    Entry      : {setup.entry_price:.5f}")
+            print(f"    Stop Loss  : {setup.stop_loss:.5f}")
+            print(f"    Take Profit: {setup.take_profit:.5f}")
+            print(f"    R:R        : 1:{rr:.1f}")
+            print(f"    Score      : {score}")
+            print(f"    Signals    : {len(setup.signals)}")
+        else:
+            reason = "HOLD" if setup.action == TradeAction.HOLD else f"R:R {rr:.1f} < {config.RISK_REWARD_MIN}"
+            print(f"⏭  {action} (score={score}, R:R=1:{rr:.1f}) — {reason}")
+
+    print(f"\n{'─' * 60}")
+    print(f"  Actionable signals: {actionable} / {len(session['tickers'])}")
+    print(f"  (Would place up to {min(actionable, config.MAX_OPEN_POSITIONS)} orders)")
+    print(f"{'═' * 60}\n")
+
+
 def _send_entry_telegram(label: str, records: list[ExecutionRecord], dry_run: bool):
     """Format and send entry results to Telegram."""
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
@@ -382,7 +448,19 @@ def main():
         "--mt5-path", default=None,
         help="Path to MT5 terminal (for Docker setups)",
     )
+    parser.add_argument(
+        "--local-test", action="store_true",
+        help="Run analysis only (no MT5 connection) — for local testing on Mac/Linux",
+    )
     args = parser.parse_args()
+
+    # ── Local test mode: analysis only, no MT5 ───────────
+    if args.local_test:
+        if args.mode == "entry":
+            mode_entry_local(args.session)
+        else:
+            print("Local test mode only supports --mode entry")
+        return
 
     # Connect to MT5
     client = MT5Client()
