@@ -5,19 +5,14 @@ on:
   schedule:
     # LONDON OPEN: 08:00 UTC (entry)
     - cron: "0 8 * * 1-5"
-
     # LONDON MID-SESSION: 10:00 UTC (monitor)
     - cron: "0 10 * * 1-5"
-
     # LONDON/NY OVERLAP: 13:00 UTC (entry)
     - cron: "0 13 * * 1-5"
-
     # NY OPEN: 14:30 UTC (entry)
     - cron: "30 14 * * 1-5"
-
     # NY MID-SESSION: 16:00 UTC (monitor)
     - cron: "0 16 * * 1-5"
-
     # END OF DAY: 20:30 UTC (monitor + summary)
     - cron: "30 20 * * 1-5"
 
@@ -27,7 +22,7 @@ on:
       mode:
         description: "Trading mode"
         required: true
-        default: "entry"
+        default: "verify"
         type: choice
         options:
           - entry
@@ -49,228 +44,293 @@ on:
         default: true
         type: boolean
 
-# ─────────────────────────────────────────────────────────
-#  JOBS
-# ─────────────────────────────────────────────────────────
-
 jobs:
   # ═══════════════════════════════════════════════════════
-  #  Verify — check symbol availability (manual only)
+  #  Verify — check MT5 connection & symbol availability
   # ═══════════════════════════════════════════════════════
   verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: windows-latest
+    timeout-minutes: 15
     if: github.event.inputs.mode == 'verify'
-    container:
-      image: ejtraderlab/metatrader5:latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Python dependencies
-        run: |
-          pip install yfinance pandas numpy
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
 
-      - name: "🔍 Verify Symbols on Broker"
+      - name: Cache MT5 terminal
+        uses: actions/cache@v4
+        id: cache-mt5
+        with:
+          path: C:\MetaTrader5
+          key: mt5-terminal-v1
+
+      - name: Download & install MT5 terminal
+        if: steps.cache-mt5.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "Downloading MetaTrader 5..."
+          $url = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
+          Invoke-WebRequest -Uri $url -OutFile mt5setup.exe
+          Write-Host "Installing MetaTrader 5 to C:\MetaTrader5..."
+          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
+          Start-Sleep -Seconds 15
+          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
+          if (Test-Path "C:\MetaTrader5\terminal64.exe") {
+            Write-Host "MT5 installed successfully"
+          } else {
+            Write-Host "WARNING: terminal64.exe not found, listing install dir..."
+            Get-ChildItem "C:\MetaTrader5" -Recurse -Depth 2 | Select-Object FullName
+          }
+
+      - name: Install Python packages
+        run: pip install MetaTrader5 yfinance pandas numpy
+
+      - name: Start MT5 terminal
+        shell: pwsh
+        run: |
+          $mt5 = "C:\MetaTrader5\terminal64.exe"
+          if (Test-Path $mt5) {
+            Write-Host "Starting MT5 terminal..."
+            Start-Process -FilePath $mt5 -ArgumentList "/portable" -WindowStyle Hidden
+            Start-Sleep -Seconds 10
+            Write-Host "MT5 terminal started"
+          } else {
+            Write-Host "::error::MT5 terminal not found at $mt5"
+            exit 1
+          }
+
+      - name: "Verify Symbols"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: >-
-          python -m trading.run_trading
-          --mode verify
+        run: python -m trading.run_trading --mode verify
 
   # ═══════════════════════════════════════════════════════
   #  London Open — Entry (08:00 UTC)
   # ═══════════════════════════════════════════════════════
   london-entry:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 15
     if: >-
       github.event.schedule == '0 8 * * 1-5' ||
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'london')
-    container:
-      image: ejtraderlab/metatrader5:latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Python dependencies
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - uses: actions/cache@v4
+        id: cache-mt5
+        with:
+          path: C:\MetaTrader5
+          key: mt5-terminal-v1
+      - name: Download & install MT5
+        if: steps.cache-mt5.outputs.cache-hit != 'true'
+        shell: pwsh
         run: |
-          pip install yfinance pandas numpy
-
-      - name: "🇬🇧 London Entry — Forex & Metals"
+          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
+          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
+          Start-Sleep -Seconds 15
+          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
+      - name: Install packages
+        run: pip install MetaTrader5 yfinance pandas numpy
+      - name: Start MT5
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "C:\MetaTrader5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
+          Start-Sleep -Seconds 10
+      - name: "London Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: >-
-          python -m trading.run_trading
-          --mode entry
-          --session london
-          --dry-run
-
-  # ═══════════════════════════════════════════════════════
-  #  London Mid-Session — Monitor (10:00 UTC)
-  # ═══════════════════════════════════════════════════════
-  london-monitor:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: >-
-      github.event.schedule == '0 10 * * 1-5' ||
-      (github.event.inputs.mode == 'monitor')
-    container:
-      image: ejtraderlab/metatrader5:latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Python dependencies
-        run: |
-          pip install yfinance pandas numpy
-
-      - name: "🔄 London Monitor — Trail & Check"
-        env:
-          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
-          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
-          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: >-
-          python -m trading.run_trading
-          --mode monitor
-          --dry-run
+        run: python -m trading.run_trading --mode entry --session london --dry-run
 
   # ═══════════════════════════════════════════════════════
   #  London/NY Overlap — Entry (13:00 UTC)
   # ═══════════════════════════════════════════════════════
   overlap-entry:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 15
     if: >-
       github.event.schedule == '0 13 * * 1-5' ||
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'overlap')
-    container:
-      image: ejtraderlab/metatrader5:latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Python dependencies
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - uses: actions/cache@v4
+        id: cache-mt5
+        with:
+          path: C:\MetaTrader5
+          key: mt5-terminal-v1
+      - name: Download & install MT5
+        if: steps.cache-mt5.outputs.cache-hit != 'true'
+        shell: pwsh
         run: |
-          pip install yfinance pandas numpy
-
-      - name: "🔥 Overlap Entry — Peak Volume"
+          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
+          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
+          Start-Sleep -Seconds 15
+          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
+      - name: Install packages
+        run: pip install MetaTrader5 yfinance pandas numpy
+      - name: Start MT5
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "C:\MetaTrader5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
+          Start-Sleep -Seconds 10
+      - name: "Overlap Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: >-
-          python -m trading.run_trading
-          --mode entry
-          --session overlap
-          --dry-run
+        run: python -m trading.run_trading --mode entry --session overlap --dry-run
 
   # ═══════════════════════════════════════════════════════
   #  NY Open — Entry (14:30 UTC)
   # ═══════════════════════════════════════════════════════
   ny-entry:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 15
     if: >-
       github.event.schedule == '30 14 * * 1-5' ||
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'ny')
-    container:
-      image: ejtraderlab/metatrader5:latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Python dependencies
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - uses: actions/cache@v4
+        id: cache-mt5
+        with:
+          path: C:\MetaTrader5
+          key: mt5-terminal-v1
+      - name: Download & install MT5
+        if: steps.cache-mt5.outputs.cache-hit != 'true'
+        shell: pwsh
         run: |
-          pip install yfinance pandas numpy
-
-      - name: "🇺🇸 NY Entry — Crypto, Metals & Forex"
+          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
+          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
+          Start-Sleep -Seconds 15
+          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
+      - name: Install packages
+        run: pip install MetaTrader5 yfinance pandas numpy
+      - name: Start MT5
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "C:\MetaTrader5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
+          Start-Sleep -Seconds 10
+      - name: "NY Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: >-
-          python -m trading.run_trading
-          --mode entry
-          --session ny
-          --dry-run
+        run: python -m trading.run_trading --mode entry --session ny --dry-run
 
   # ═══════════════════════════════════════════════════════
-  #  NY Mid-Session — Monitor (16:00 UTC)
+  #  Monitor — trail stops & check reversals (10:00, 16:00)
   # ═══════════════════════════════════════════════════════
-  ny-monitor:
-    runs-on: ubuntu-latest
+  monitor:
+    runs-on: windows-latest
     timeout-minutes: 15
     if: >-
+      github.event.schedule == '0 10 * * 1-5' ||
       github.event.schedule == '0 16 * * 1-5' ||
-      (github.event.inputs.mode == 'monitor')
-    container:
-      image: ejtraderlab/metatrader5:latest
+      github.event.inputs.mode == 'monitor'
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Python dependencies
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - uses: actions/cache@v4
+        id: cache-mt5
+        with:
+          path: C:\MetaTrader5
+          key: mt5-terminal-v1
+      - name: Download & install MT5
+        if: steps.cache-mt5.outputs.cache-hit != 'true'
+        shell: pwsh
         run: |
-          pip install yfinance pandas numpy
-
-      - name: "🔄 NY Monitor — Trail & Check"
+          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
+          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
+          Start-Sleep -Seconds 15
+          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
+      - name: Install packages
+        run: pip install MetaTrader5 yfinance pandas numpy
+      - name: Start MT5
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "C:\MetaTrader5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
+          Start-Sleep -Seconds 10
+      - name: "Monitor Positions"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: >-
-          python -m trading.run_trading
-          --mode monitor
-          --dry-run
+        run: python -m trading.run_trading --mode monitor --dry-run
 
   # ═══════════════════════════════════════════════════════
-  #  End of Day — Monitor + Summary (20:30 UTC)
+  #  End of Day — Summary (20:30 UTC)
   # ═══════════════════════════════════════════════════════
   eod-summary:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 15
     if: >-
       github.event.schedule == '30 20 * * 1-5' ||
-      (github.event.inputs.mode == 'summary')
-    container:
-      image: ejtraderlab/metatrader5:latest
+      github.event.inputs.mode == 'summary'
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Python dependencies
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - uses: actions/cache@v4
+        id: cache-mt5
+        with:
+          path: C:\MetaTrader5
+          key: mt5-terminal-v1
+      - name: Download & install MT5
+        if: steps.cache-mt5.outputs.cache-hit != 'true'
+        shell: pwsh
         run: |
-          pip install yfinance pandas numpy
-
-      - name: "🔄 End-of-Day Monitor"
+          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
+          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
+          Start-Sleep -Seconds 15
+          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
+      - name: Install packages
+        run: pip install MetaTrader5 yfinance pandas numpy
+      - name: Start MT5
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "C:\MetaTrader5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
+          Start-Sleep -Seconds 10
+      - name: "Monitor + Summary"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: >-
-          python -m trading.run_trading
-          --mode monitor
-          --dry-run
-
-      - name: "📋 Daily Summary"
-        env:
-          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
-          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
-          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: >-
-          python -m trading.run_trading
-          --mode summary
+        run: |
+          python -m trading.run_trading --mode monitor --dry-run
+          python -m trading.run_trading --mode summary

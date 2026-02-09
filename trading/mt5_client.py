@@ -3,9 +3,10 @@ MT5 Client — thin wrapper around the MetaTrader5 Python library.
 ================================================================
 Handles connection, order management, and position queries for HFM.
 
-Requires:
-    - MetaTrader5 terminal running (via Docker/Wine or native Windows)
-    - pip install MetaTrader5
+Supports two modes:
+    1. Native: MetaTrader5 package on Windows (pip install MetaTrader5)
+    2. RPyC bridge: mt5linux on Linux/Docker (pip install mt5linux)
+       Connects to a Wine-based MT5 terminal via RPyC on localhost:18812
 """
 
 from __future__ import annotations
