@@ -50,18 +50,19 @@ YFINANCE_TO_MT5 = {
     "BZ=F":      "UKOIL",      # Brent Crude Oil
     "NG=F":      "NGAS",       # Natural Gas
 
-    # ── Crypto ────────────────────────────────────
-    "BTC-USD":   "BTCUSD",
-    "ETH-USD":   "ETHUSD",
-    "SOL-USD":   "SOLUSD",
-    "XRP-USD":   "XRPUSD",
-    "BNB-USD":   "BNBUSD",
-    "DOGE-USD":  "DOGEUSD",
-    "ADA-USD":   "ADAUSD",
-    "AVAX-USD":  "AVAXUSD",
-    "MATIC-USD": "MATICUSD",
-    "LINK-USD":  "LINKUSD",
-    "DOT-USD":   "DOTUSD",
+    # ── Crypto (HFM uses # prefix) ─────────────────
+    "BTC-USD":   "#BTCUSD",
+    "ETH-USD":   "#ETHUSD",
+    "SOL-USD":   "#SOLUSD",
+    "XRP-USD":   "#XRPUSD",
+    "BNB-USD":   "#BNBUSD",
+    "DOGE-USD":  "#DOGEUSD",
+    "ADA-USD":   "#ADAUSD",
+    "AVAX-USD":  "#AVAXUSD",
+    "MATIC-USD": "#MATICUSD",
+    "LINK-USD":  "#LINKUSD",
+    "DOT-USD":   "#DOTUSD",
+    "LTC-USD":   "#LTCUSD",
 }
 
 # Reverse mapping: MT5 → yfinance
@@ -72,9 +73,10 @@ MT5_TO_YFINANCE = {v: k for k, v in YFINANCE_TO_MT5.items()}
 #  Suffix variants — some HFM account types add suffixes
 # ──────────────────────────────────────────────────────────
 
-# HFM may use suffixes like ".a" (cent), ".b", "#" for different account types.
-# We try the base symbol first, then common suffixes.
-_SUFFIXES = ["", ".a", ".b", "m", "#", "_SB"]
+# HFM may use suffixes like ".a" (cent), ".b" for different account types,
+# or "#" prefix for crypto. We try the base symbol first, then variants.
+_SUFFIXES = ["", ".a", ".b", "m", "_SB"]
+_PREFIXES = ["", "#"]
 
 
 # ──────────────────────────────────────────────────────────
@@ -150,11 +152,17 @@ def verify_symbols(mt5_client, yfinance_tickers: list[str]) -> dict:
         if mt5_sym in all_broker_symbols:
             found = True
         else:
-            # Try with common suffixes
-            for suffix in _SUFFIXES:
-                if suffix and (mt5_sym + suffix) in all_broker_symbols:
-                    mt5_sym = mt5_sym + suffix
-                    found = True
+            # Try with common prefixes and suffixes
+            # Strip existing # prefix for clean base name
+            base = mt5_sym.lstrip("#")
+            for prefix in _PREFIXES:
+                for suffix in _SUFFIXES:
+                    candidate = prefix + base + suffix
+                    if candidate in all_broker_symbols:
+                        mt5_sym = candidate
+                        found = True
+                        break
+                if found:
                     break
 
         results[ticker] = {
