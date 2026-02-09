@@ -60,7 +60,7 @@ jobs:
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode verify --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
@@ -92,7 +92,7 @@ jobs:
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode entry --session london --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
@@ -124,7 +124,7 @@ jobs:
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode entry --session overlap --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
@@ -156,7 +156,7 @@ jobs:
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode entry --session ny --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
@@ -189,7 +189,7 @@ jobs:
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode monitor --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
@@ -221,7 +221,7 @@ jobs:
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: |
           python -m trading.run_trading --mode monitor --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
           python -m trading.run_trading --mode summary --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
