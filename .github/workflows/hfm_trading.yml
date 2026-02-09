@@ -50,7 +50,7 @@ jobs:
   # ═══════════════════════════════════════════════════════
   verify:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     if: github.event.inputs.mode == 'verify'
     steps:
       - uses: actions/checkout@v4
@@ -59,31 +59,62 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
       - name: Cache MT5 terminal
         uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MetaTrader5
-          key: mt5-terminal-v1
+          path: C:\MT5
+          key: mt5-terminal-v3
 
       - name: Download & install MT5 terminal
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          Write-Host "Downloading MetaTrader 5..."
-          $url = "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
-          Invoke-WebRequest -Uri $url -OutFile mt5setup.exe
-          Write-Host "Installing MetaTrader 5 to C:\MetaTrader5..."
-          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
-          Start-Sleep -Seconds 15
+          Write-Host "=== Downloading MetaTrader 5 ==="
+          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
+          Write-Host "=== Installing MT5 (silent, to C:\MT5) ==="
+          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
+          # Wait up to 120s for install to finish
+          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 10
           Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
-          if (Test-Path "C:\MetaTrader5\terminal64.exe") {
-            Write-Host "MT5 installed successfully"
+          # Find where MT5 was actually installed
+          Write-Host "=== Searching for terminal64.exe ==="
+          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
+          if ($found) {
+            $mt5Dir = $found.DirectoryName
+            Write-Host "Found MT5 at: $mt5Dir"
+            # Copy to our cache-friendly location
+            if ($mt5Dir -ne "C:\MT5") {
+              Write-Host "Copying to C:\MT5 for caching..."
+              Copy-Item -Path $mt5Dir -Destination "C:\MT5" -Recurse -Force
+            }
           } else {
-            Write-Host "WARNING: terminal64.exe not found, listing install dir..."
-            Get-ChildItem "C:\MetaTrader5" -Recurse -Depth 2 | Select-Object FullName
+            Write-Host "::warning::terminal64.exe not found via search"
+            Write-Host "Checking common paths..."
+            $paths = @(
+              "$env:ProgramFiles\MetaTrader 5",
+              "${env:ProgramFiles(x86)}\MetaTrader 5",
+              "$env:APPDATA\MetaQuotes\Terminal",
+              "$env:LOCALAPPDATA\Programs\MetaTrader 5"
+            )
+            foreach ($p in $paths) {
+              if (Test-Path $p) {
+                Write-Host "Found directory: $p"
+                Get-ChildItem $p -Depth 2 | Select-Object FullName
+              }
+            }
+            # Last resort: broad search
+            Write-Host "=== Broad filesystem search ==="
+            Get-ChildItem -Path "C:\Users" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 8 | ForEach-Object { Write-Host $_.FullName }
+          }
+          # Verify
+          if (Test-Path "C:\MT5\terminal64.exe") {
+            Write-Host "=== MT5 ready at C:\MT5\terminal64.exe ==="
+          } else {
+            Write-Host "::error::Could not find or copy MT5 terminal"
+            exit 1
           }
 
       - name: Install Python packages
@@ -92,14 +123,19 @@ jobs:
       - name: Start MT5 terminal
         shell: pwsh
         run: |
-          $mt5 = "C:\MetaTrader5\terminal64.exe"
+          $mt5 = "C:\MT5\terminal64.exe"
+          if (-not (Test-Path $mt5)) {
+            Write-Host "MT5 not at cached location, searching..."
+            $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
+            if ($found) { $mt5 = $found.FullName }
+          }
           if (Test-Path $mt5) {
-            Write-Host "Starting MT5 terminal..."
+            Write-Host "Starting MT5 from: $mt5"
             Start-Process -FilePath $mt5 -ArgumentList "/portable" -WindowStyle Hidden
-            Start-Sleep -Seconds 10
+            Start-Sleep -Seconds 15
             Write-Host "MT5 terminal started"
           } else {
-            Write-Host "::error::MT5 terminal not found at $mt5"
+            Write-Host "::error::MT5 terminal not found anywhere"
             exit 1
           }
 
@@ -117,7 +153,7 @@ jobs:
   # ═══════════════════════════════════════════════════════
   london-entry:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     if: >-
       github.event.schedule == '0 8 * * 1-5' ||
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'london')
@@ -126,27 +162,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MetaTrader5
-          key: mt5-terminal-v1
+          path: C:\MT5
+          key: mt5-terminal-v3
       - name: Download & install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
-          Start-Sleep -Seconds 15
+          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
+          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 10
           Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
+          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
+          if ($found -and $found.DirectoryName -ne "C:\MT5") {
+            Copy-Item -Path $found.DirectoryName -Destination "C:\MT5" -Recurse -Force
+          }
+          if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: Start MT5
         shell: pwsh
         run: |
-          Start-Process -FilePath "C:\MetaTrader5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
-          Start-Sleep -Seconds 10
+          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
+          Start-Sleep -Seconds 15
       - name: "London Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -161,7 +202,7 @@ jobs:
   # ═══════════════════════════════════════════════════════
   overlap-entry:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     if: >-
       github.event.schedule == '0 13 * * 1-5' ||
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'overlap')
@@ -170,27 +211,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MetaTrader5
-          key: mt5-terminal-v1
+          path: C:\MT5
+          key: mt5-terminal-v3
       - name: Download & install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
-          Start-Sleep -Seconds 15
+          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
+          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 10
           Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
+          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
+          if ($found -and $found.DirectoryName -ne "C:\MT5") {
+            Copy-Item -Path $found.DirectoryName -Destination "C:\MT5" -Recurse -Force
+          }
+          if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: Start MT5
         shell: pwsh
         run: |
-          Start-Process -FilePath "C:\MetaTrader5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
-          Start-Sleep -Seconds 10
+          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
+          Start-Sleep -Seconds 15
       - name: "Overlap Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -205,7 +251,7 @@ jobs:
   # ═══════════════════════════════════════════════════════
   ny-entry:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     if: >-
       github.event.schedule == '30 14 * * 1-5' ||
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'ny')
@@ -214,27 +260,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MetaTrader5
-          key: mt5-terminal-v1
+          path: C:\MT5
+          key: mt5-terminal-v3
       - name: Download & install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
-          Start-Sleep -Seconds 15
+          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
+          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 10
           Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
+          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
+          if ($found -and $found.DirectoryName -ne "C:\MT5") {
+            Copy-Item -Path $found.DirectoryName -Destination "C:\MT5" -Recurse -Force
+          }
+          if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: Start MT5
         shell: pwsh
         run: |
-          Start-Process -FilePath "C:\MetaTrader5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
-          Start-Sleep -Seconds 10
+          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
+          Start-Sleep -Seconds 15
       - name: "NY Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -249,7 +300,7 @@ jobs:
   # ═══════════════════════════════════════════════════════
   monitor:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     if: >-
       github.event.schedule == '0 10 * * 1-5' ||
       github.event.schedule == '0 16 * * 1-5' ||
@@ -259,27 +310,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MetaTrader5
-          key: mt5-terminal-v1
+          path: C:\MT5
+          key: mt5-terminal-v3
       - name: Download & install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
-          Start-Sleep -Seconds 15
+          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
+          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 10
           Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
+          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
+          if ($found -and $found.DirectoryName -ne "C:\MT5") {
+            Copy-Item -Path $found.DirectoryName -Destination "C:\MT5" -Recurse -Force
+          }
+          if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: Start MT5
         shell: pwsh
         run: |
-          Start-Process -FilePath "C:\MetaTrader5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
-          Start-Sleep -Seconds 10
+          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
+          Start-Sleep -Seconds 15
       - name: "Monitor Positions"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -294,7 +350,7 @@ jobs:
   # ═══════════════════════════════════════════════════════
   eod-summary:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     if: >-
       github.event.schedule == '30 20 * * 1-5' ||
       github.event.inputs.mode == 'summary'
@@ -303,27 +359,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MetaTrader5
-          key: mt5-terminal-v1
+          path: C:\MT5
+          key: mt5-terminal-v3
       - name: Download & install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto", "/D=C:\MetaTrader5" -Wait -NoNewWindow
-          Start-Sleep -Seconds 15
+          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
+          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 10
           Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
+          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
+          if ($found -and $found.DirectoryName -ne "C:\MT5") {
+            Copy-Item -Path $found.DirectoryName -Destination "C:\MT5" -Recurse -Force
+          }
+          if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: Start MT5
         shell: pwsh
         run: |
-          Start-Process -FilePath "C:\MetaTrader5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
-          Start-Sleep -Seconds 10
+          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
+          Start-Sleep -Seconds 15
       - name: "Monitor + Summary"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
