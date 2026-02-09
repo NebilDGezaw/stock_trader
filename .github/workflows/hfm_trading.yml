@@ -30,7 +30,6 @@ on:
         type: boolean
 
 # NOTE: HFM_MT5_SERVER secret must be IP:port (e.g. 18.134.38.113:1950)
-#       Server hostnames do NOT work on GitHub Actions.
 
 jobs:
   # ═══════════════════════════════════════════════════════
@@ -48,10 +47,23 @@ jobs:
         id: cache-mt5
         with:
           path: 'C:\Program Files\MetaTrader 5'
-          key: ${{ runner.os }}-mt5-choco-v1
+          key: ${{ runner.os }}-mt5-choco-v2
       - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
+      - name: Enable AutoTrading
+        shell: pwsh
+        run: |
+          $cfgDir = "C:\Program Files\MetaTrader 5\config"
+          New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+          @"
+          [Experts]
+          AllowLiveTrading=1
+          Enabled=1
+          Account=0
+          Profile=0
+          "@ | Set-Content "$cfgDir\common.ini" -Encoding ASCII
+          Write-Host "AutoTrading enabled in common.ini"
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: "Verify Symbols"
@@ -80,10 +92,22 @@ jobs:
         id: cache-mt5
         with:
           path: 'C:\Program Files\MetaTrader 5'
-          key: ${{ runner.os }}-mt5-choco-v1
+          key: ${{ runner.os }}-mt5-choco-v2
       - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
+      - name: Enable AutoTrading
+        shell: pwsh
+        run: |
+          $cfgDir = "C:\Program Files\MetaTrader 5\config"
+          New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+          @"
+          [Experts]
+          AllowLiveTrading=1
+          Enabled=1
+          Account=0
+          Profile=0
+          "@ | Set-Content "$cfgDir\common.ini" -Encoding ASCII
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: "London Entry"
@@ -112,10 +136,22 @@ jobs:
         id: cache-mt5
         with:
           path: 'C:\Program Files\MetaTrader 5'
-          key: ${{ runner.os }}-mt5-choco-v1
+          key: ${{ runner.os }}-mt5-choco-v2
       - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
+      - name: Enable AutoTrading
+        shell: pwsh
+        run: |
+          $cfgDir = "C:\Program Files\MetaTrader 5\config"
+          New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+          @"
+          [Experts]
+          AllowLiveTrading=1
+          Enabled=1
+          Account=0
+          Profile=0
+          "@ | Set-Content "$cfgDir\common.ini" -Encoding ASCII
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: "Overlap Entry"
@@ -144,10 +180,22 @@ jobs:
         id: cache-mt5
         with:
           path: 'C:\Program Files\MetaTrader 5'
-          key: ${{ runner.os }}-mt5-choco-v1
+          key: ${{ runner.os }}-mt5-choco-v2
       - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
+      - name: Enable AutoTrading
+        shell: pwsh
+        run: |
+          $cfgDir = "C:\Program Files\MetaTrader 5\config"
+          New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+          @"
+          [Experts]
+          AllowLiveTrading=1
+          Enabled=1
+          Account=0
+          Profile=0
+          "@ | Set-Content "$cfgDir\common.ini" -Encoding ASCII
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: "NY Entry"
@@ -177,10 +225,22 @@ jobs:
         id: cache-mt5
         with:
           path: 'C:\Program Files\MetaTrader 5'
-          key: ${{ runner.os }}-mt5-choco-v1
+          key: ${{ runner.os }}-mt5-choco-v2
       - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
+      - name: Enable AutoTrading
+        shell: pwsh
+        run: |
+          $cfgDir = "C:\Program Files\MetaTrader 5\config"
+          New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+          @"
+          [Experts]
+          AllowLiveTrading=1
+          Enabled=1
+          Account=0
+          Profile=0
+          "@ | Set-Content "$cfgDir\common.ini" -Encoding ASCII
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: "Monitor Positions"
@@ -209,10 +269,22 @@ jobs:
         id: cache-mt5
         with:
           path: 'C:\Program Files\MetaTrader 5'
-          key: ${{ runner.os }}-mt5-choco-v1
+          key: ${{ runner.os }}-mt5-choco-v2
       - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
+      - name: Enable AutoTrading
+        shell: pwsh
+        run: |
+          $cfgDir = "C:\Program Files\MetaTrader 5\config"
+          New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+          @"
+          [Experts]
+          AllowLiveTrading=1
+          Enabled=1
+          Account=0
+          Profile=0
+          "@ | Set-Content "$cfgDir\common.ini" -Encoding ASCII
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: "Monitor + Summary"
