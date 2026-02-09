@@ -27,7 +27,13 @@ import urllib.parse
 from datetime import datetime
 
 # Ensure project root is on path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, _project_root)
+
+# Support GitHub Actions cached libs in ./libs subfolder
+_libs_dir = os.path.join(_project_root, "libs")
+if os.path.isdir(_libs_dir) and _libs_dir not in sys.path:
+    sys.path.insert(0, _libs_dir)
 
 import config
 from data.fetcher import StockDataFetcher

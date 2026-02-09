@@ -3,20 +3,13 @@ name: HFM Auto-Trader
 on:
   # ── Scheduled sessions (all times UTC, Mon-Fri) ─────────
   schedule:
-    # LONDON OPEN: 08:00 UTC (entry)
-    - cron: "0 8 * * 1-5"
-    # LONDON MID-SESSION: 10:00 UTC (monitor)
-    - cron: "0 10 * * 1-5"
-    # LONDON/NY OVERLAP: 13:00 UTC (entry)
-    - cron: "0 13 * * 1-5"
-    # NY OPEN: 14:30 UTC (entry)
-    - cron: "30 14 * * 1-5"
-    # NY MID-SESSION: 16:00 UTC (monitor)
-    - cron: "0 16 * * 1-5"
-    # END OF DAY: 20:30 UTC (monitor + summary)
-    - cron: "30 20 * * 1-5"
+    - cron: "0 8 * * 1-5"     # LONDON OPEN entry
+    - cron: "0 10 * * 1-5"    # LONDON monitor
+    - cron: "0 13 * * 1-5"    # OVERLAP entry
+    - cron: "30 14 * * 1-5"   # NY OPEN entry
+    - cron: "0 16 * * 1-5"    # NY monitor
+    - cron: "30 20 * * 1-5"   # EOD summary
 
-  # ── Manual trigger ──────────────────────────────────────
   workflow_dispatch:
     inputs:
       mode:
@@ -24,27 +17,36 @@ on:
         required: true
         default: "verify"
         type: choice
-        options:
-          - entry
-          - monitor
-          - summary
-          - verify
+        options: [entry, monitor, summary, verify]
       session:
         description: "Session (for entry mode)"
         required: false
         default: "london"
         type: choice
-        options:
-          - london
-          - ny
-          - overlap
+        options: [london, ny, overlap]
       dry_run:
         description: "Dry run (no real orders)"
         required: false
         default: true
         type: boolean
 
+# ─────────────────────────────────────────────────────────
+# NOTE on HFM_MT5_SERVER secret:
+#   GitHub Actions cannot resolve MT5 server hostnames.
+#   You MUST use the server's IP:port instead of the name.
+#   e.g. "169.57.155.230:6443" instead of "HFMarketsGlobal-Demo"
+#
+#   To find the IP: open MT5 on your computer → File → 
+#   Open an Account → find your server → check the address
+#   shown (or use nslookup on the server hostname).
+# ─────────────────────────────────────────────────────────
+
 jobs:
+  # ═══════════════════════════════════════════════════════
+  #  One-time setup: build and cache MT5 + Python libs
+  #  (runs automatically if cache is missing)
+  # ═══════════════════════════════════════════════════════
+
   # ═══════════════════════════════════════════════════════
   #  Verify — check MT5 connection & symbol availability
   # ═══════════════════════════════════════════════════════
@@ -55,73 +57,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache Python setup
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/Python/3.11.9
+          key: python-${{ runner.os }}-3.11
+        id: cache-python
+
       - name: Set up Python
+        if: steps.cache-python.outputs.cache-hit != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Cache MT5 terminal
+      - name: Cache MT5 installation
         uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MT5
-          key: mt5-terminal-v4
+          path: 'C:\Program Files\MetaTrader 5'
+          key: ${{ runner.os }}-mt5-choco-v1
 
-      - name: Download & install MT5 terminal
+      - name: Install MT5 via Chocolatey
         if: steps.cache-mt5.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          Write-Host "=== Downloading MetaTrader 5 ==="
-          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          Write-Host "=== Installing MT5 (silent) ==="
-          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
-          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 10
-          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
-          # Find where MT5 was actually installed
-          Write-Host "=== Searching for terminal64.exe ==="
-          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
-          if ($found) {
-            $mt5Dir = $found.DirectoryName
-            Write-Host "Found MT5 at: $mt5Dir"
-            if ($mt5Dir -ne "C:\MT5") {
-              Write-Host "Copying to C:\MT5 for caching..."
-              Copy-Item -Path $mt5Dir -Destination "C:\MT5" -Recurse -Force
-            }
-          }
-          if (Test-Path "C:\MT5\terminal64.exe") {
-            Write-Host "=== MT5 ready at C:\MT5\terminal64.exe ==="
-          } else {
-            Write-Host "::error::Could not find MT5 terminal"
-            exit 1
-          }
+        run: choco install metatrader5 --pre -y
+
+      - name: Cache Python packages
+        uses: actions/cache@v4
+        with:
+          path: libs
+          key: ${{ runner.os }}-libs-v1
+        id: cache-libs
 
       - name: Install Python packages
-        run: pip install MetaTrader5 yfinance pandas numpy
-
-      - name: Start MT5 terminal with credentials
-        shell: pwsh
-        env:
-          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
-          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
-          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        if: steps.cache-libs.outputs.cache-hit != 'true'
         run: |
-          $mt5 = "C:\MT5\terminal64.exe"
-          Write-Host "Starting MT5 with login credentials..."
-          # Start terminal in portable mode with broker credentials
-          # This lets it connect to the broker BEFORE Python tries IPC
-          Start-Process -FilePath $mt5 -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
-          Write-Host "Waiting 60s for MT5 to boot and connect to broker..."
-          Start-Sleep -Seconds 60
-          # Verify the process is running
-          $running = Get-Process -Name "terminal64" -ErrorAction SilentlyContinue
-          if ($running) {
-            Write-Host "MT5 terminal is running (PID: $($running.Id))"
-          } else {
-            Write-Host "::warning::MT5 process not found — it may have crashed"
-            # List any MetaTrader-related processes
-            Get-Process | Where-Object { $_.Name -like "*meta*" -or $_.Name -like "*terminal*" } | Format-Table Name, Id, StartTime
-          }
+          mkdir libs -ErrorAction SilentlyContinue
+          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
+        shell: pwsh
 
       - name: "Verify Symbols"
         env:
@@ -130,7 +102,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode verify --mt5-path "C:\MT5\terminal64.exe"
+        run: python -m trading.run_trading --mode verify --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   #  London Open — Entry (08:00 UTC)
@@ -143,39 +115,34 @@ jobs:
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'london')
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/Python/3.11.9
+          key: python-${{ runner.os }}-3.11
+        id: cache-python
       - uses: actions/setup-python@v5
+        if: steps.cache-python.outputs.cache-hit != 'true'
         with:
           python-version: "3.11"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MT5
-          key: mt5-terminal-v4
-      - name: Download & install MT5
+          path: 'C:\Program Files\MetaTrader 5'
+          key: ${{ runner.os }}-mt5-choco-v1
+      - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
-          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 10
-          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
-          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
-          if ($found -and $found.DirectoryName -ne "C:\MT5") {
-            Copy-Item -Path $found.DirectoryName -Destination "C:\MT5" -Recurse -Force
-          }
-          if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
+        run: choco install metatrader5 --pre -y
+      - uses: actions/cache@v4
+        with:
+          path: libs
+          key: ${{ runner.os }}-libs-v1
+        id: cache-libs
       - name: Install packages
-        run: pip install MetaTrader5 yfinance pandas numpy
-      - name: Start MT5 with credentials
-        shell: pwsh
-        env:
-          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
-          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
-          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        if: steps.cache-libs.outputs.cache-hit != 'true'
         run: |
-          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
-          Start-Sleep -Seconds 60
+          mkdir libs -ErrorAction SilentlyContinue
+          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
+        shell: pwsh
       - name: "London Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -183,7 +150,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode entry --session london --dry-run --mt5-path "C:\MT5\terminal64.exe"
+        run: python -m trading.run_trading --mode entry --session london --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   #  London/NY Overlap — Entry (13:00 UTC)
@@ -196,39 +163,34 @@ jobs:
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'overlap')
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/Python/3.11.9
+          key: python-${{ runner.os }}-3.11
+        id: cache-python
       - uses: actions/setup-python@v5
+        if: steps.cache-python.outputs.cache-hit != 'true'
         with:
           python-version: "3.11"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MT5
-          key: mt5-terminal-v4
-      - name: Download & install MT5
+          path: 'C:\Program Files\MetaTrader 5'
+          key: ${{ runner.os }}-mt5-choco-v1
+      - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
-          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 10
-          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
-          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
-          if ($found -and $found.DirectoryName -ne "C:\MT5") {
-            Copy-Item -Path $found.DirectoryName -Destination "C:\MT5" -Recurse -Force
-          }
-          if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
+        run: choco install metatrader5 --pre -y
+      - uses: actions/cache@v4
+        with:
+          path: libs
+          key: ${{ runner.os }}-libs-v1
+        id: cache-libs
       - name: Install packages
-        run: pip install MetaTrader5 yfinance pandas numpy
-      - name: Start MT5 with credentials
-        shell: pwsh
-        env:
-          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
-          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
-          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        if: steps.cache-libs.outputs.cache-hit != 'true'
         run: |
-          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
-          Start-Sleep -Seconds 60
+          mkdir libs -ErrorAction SilentlyContinue
+          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
+        shell: pwsh
       - name: "Overlap Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -236,7 +198,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode entry --session overlap --dry-run --mt5-path "C:\MT5\terminal64.exe"
+        run: python -m trading.run_trading --mode entry --session overlap --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   #  NY Open — Entry (14:30 UTC)
@@ -249,39 +211,34 @@ jobs:
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'ny')
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/Python/3.11.9
+          key: python-${{ runner.os }}-3.11
+        id: cache-python
       - uses: actions/setup-python@v5
+        if: steps.cache-python.outputs.cache-hit != 'true'
         with:
           python-version: "3.11"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MT5
-          key: mt5-terminal-v4
-      - name: Download & install MT5
+          path: 'C:\Program Files\MetaTrader 5'
+          key: ${{ runner.os }}-mt5-choco-v1
+      - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
-          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 10
-          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
-          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
-          if ($found -and $found.DirectoryName -ne "C:\MT5") {
-            Copy-Item -Path $found.DirectoryName -Destination "C:\MT5" -Recurse -Force
-          }
-          if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
+        run: choco install metatrader5 --pre -y
+      - uses: actions/cache@v4
+        with:
+          path: libs
+          key: ${{ runner.os }}-libs-v1
+        id: cache-libs
       - name: Install packages
-        run: pip install MetaTrader5 yfinance pandas numpy
-      - name: Start MT5 with credentials
-        shell: pwsh
-        env:
-          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
-          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
-          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        if: steps.cache-libs.outputs.cache-hit != 'true'
         run: |
-          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
-          Start-Sleep -Seconds 60
+          mkdir libs -ErrorAction SilentlyContinue
+          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
+        shell: pwsh
       - name: "NY Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -289,10 +246,10 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode entry --session ny --dry-run --mt5-path "C:\MT5\terminal64.exe"
+        run: python -m trading.run_trading --mode entry --session ny --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
-  #  Monitor — trail stops & check reversals (10:00, 16:00)
+  #  Monitor — trail stops & check reversals
   # ═══════════════════════════════════════════════════════
   monitor:
     runs-on: windows-latest
@@ -303,39 +260,34 @@ jobs:
       github.event.inputs.mode == 'monitor'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/Python/3.11.9
+          key: python-${{ runner.os }}-3.11
+        id: cache-python
       - uses: actions/setup-python@v5
+        if: steps.cache-python.outputs.cache-hit != 'true'
         with:
           python-version: "3.11"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MT5
-          key: mt5-terminal-v4
-      - name: Download & install MT5
+          path: 'C:\Program Files\MetaTrader 5'
+          key: ${{ runner.os }}-mt5-choco-v1
+      - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
-          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 10
-          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
-          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
-          if ($found -and $found.DirectoryName -ne "C:\MT5") {
-            Copy-Item -Path $found.DirectoryName -Destination "C:\MT5" -Recurse -Force
-          }
-          if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
+        run: choco install metatrader5 --pre -y
+      - uses: actions/cache@v4
+        with:
+          path: libs
+          key: ${{ runner.os }}-libs-v1
+        id: cache-libs
       - name: Install packages
-        run: pip install MetaTrader5 yfinance pandas numpy
-      - name: Start MT5 with credentials
-        shell: pwsh
-        env:
-          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
-          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
-          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        if: steps.cache-libs.outputs.cache-hit != 'true'
         run: |
-          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
-          Start-Sleep -Seconds 60
+          mkdir libs -ErrorAction SilentlyContinue
+          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
+        shell: pwsh
       - name: "Monitor Positions"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -343,10 +295,10 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode monitor --dry-run --mt5-path "C:\MT5\terminal64.exe"
+        run: python -m trading.run_trading --mode monitor --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
-  #  End of Day — Summary (20:30 UTC)
+  #  End of Day — Summary
   # ═══════════════════════════════════════════════════════
   eod-summary:
     runs-on: windows-latest
@@ -356,39 +308,34 @@ jobs:
       github.event.inputs.mode == 'summary'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/Python/3.11.9
+          key: python-${{ runner.os }}-3.11
+        id: cache-python
       - uses: actions/setup-python@v5
+        if: steps.cache-python.outputs.cache-hit != 'true'
         with:
           python-version: "3.11"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
-          path: C:\MT5
-          key: mt5-terminal-v4
-      - name: Download & install MT5
+          path: 'C:\Program Files\MetaTrader 5'
+          key: ${{ runner.os }}-mt5-choco-v1
+      - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
-          $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 10
-          Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
-          $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
-          if ($found -and $found.DirectoryName -ne "C:\MT5") {
-            Copy-Item -Path $found.DirectoryName -Destination "C:\MT5" -Recurse -Force
-          }
-          if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
+        run: choco install metatrader5 --pre -y
+      - uses: actions/cache@v4
+        with:
+          path: libs
+          key: ${{ runner.os }}-libs-v1
+        id: cache-libs
       - name: Install packages
-        run: pip install MetaTrader5 yfinance pandas numpy
-      - name: Start MT5 with credentials
-        shell: pwsh
-        env:
-          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
-          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
-          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        if: steps.cache-libs.outputs.cache-hit != 'true'
         run: |
-          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
-          Start-Sleep -Seconds 60
+          mkdir libs -ErrorAction SilentlyContinue
+          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
+        shell: pwsh
       - name: "Monitor + Summary"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -397,5 +344,5 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python -m trading.run_trading --mode monitor --dry-run --mt5-path "C:\MT5\terminal64.exe"
-          python -m trading.run_trading --mode summary --mt5-path "C:\MT5\terminal64.exe"
+          python -m trading.run_trading --mode monitor --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
+          python -m trading.run_trading --mode summary --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
