@@ -37,6 +37,8 @@ class ExecutorConfig:
     max_daily_loss_pct: float = 5.0       # stop trading if daily loss > 5%
     default_risk_pct: float = 0.02        # 2% of equity per trade
     min_risk_reward: float = 2.0          # minimum R:R to execute
+    max_risk_per_trade: float = 1.0       # hard cap: max $1 risk per trade
+    min_lot_size: float = 0.01            # minimum lot size (broker floor)
     dry_run: bool = False                 # log only, don't place orders
 
 
@@ -68,11 +70,14 @@ def calculate_lot_size(
     stop_loss: float,
     symbol_info: dict,
     asset_type: str,
+    max_risk_amount: float = 1.0,
 ) -> float:
     """
     Calculate the lot size based on risk management.
 
     Formula: lot_size = (equity × risk%) / (SL distance in price × contract size)
+
+    The risk amount is capped by max_risk_amount (default $1) to limit exposure.
 
     Returns the lot size rounded to the broker's volume step.
     """
@@ -82,6 +87,8 @@ def calculate_lot_size(
         return 0.0
 
     risk_amount = equity * risk_pct
+    # Hard cap: never risk more than max_risk_amount per trade
+    risk_amount = min(risk_amount, max_risk_amount)
     contract_size = symbol_info.get("trade_contract_size", 100000)
 
     # For forex: contract_size is typically 100,000 (standard lot)
@@ -251,6 +258,7 @@ class TradeExecutor:
             stop_loss=setup.stop_loss,
             symbol_info=sym_info,
             asset_type=asset_type,
+            max_risk_amount=self.cfg.max_risk_per_trade,
         )
 
         if volume <= 0:
