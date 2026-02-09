@@ -65,7 +65,7 @@ jobs:
         id: cache-mt5
         with:
           path: C:\MT5
-          key: mt5-terminal-v3
+          key: mt5-terminal-v4
 
       - name: Download & install MT5 terminal
         if: steps.cache-mt5.outputs.cache-hit != 'true'
@@ -73,9 +73,8 @@ jobs:
         run: |
           Write-Host "=== Downloading MetaTrader 5 ==="
           Invoke-WebRequest -Uri "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe" -OutFile mt5setup.exe
-          Write-Host "=== Installing MT5 (silent, to C:\MT5) ==="
+          Write-Host "=== Installing MT5 (silent) ==="
           $proc = Start-Process -FilePath .\mt5setup.exe -ArgumentList "/auto" -PassThru
-          # Wait up to 120s for install to finish
           $proc | Wait-Process -Timeout 120 -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 10
           Remove-Item mt5setup.exe -ErrorAction SilentlyContinue
@@ -85,40 +84,44 @@ jobs:
           if ($found) {
             $mt5Dir = $found.DirectoryName
             Write-Host "Found MT5 at: $mt5Dir"
-            # Copy to our cache-friendly location
             if ($mt5Dir -ne "C:\MT5") {
               Write-Host "Copying to C:\MT5 for caching..."
               Copy-Item -Path $mt5Dir -Destination "C:\MT5" -Recurse -Force
             }
-          } else {
-            Write-Host "::warning::terminal64.exe not found via search"
-            Write-Host "Checking common paths..."
-            $paths = @(
-              "$env:ProgramFiles\MetaTrader 5",
-              "${env:ProgramFiles(x86)}\MetaTrader 5",
-              "$env:APPDATA\MetaQuotes\Terminal",
-              "$env:LOCALAPPDATA\Programs\MetaTrader 5"
-            )
-            foreach ($p in $paths) {
-              if (Test-Path $p) {
-                Write-Host "Found directory: $p"
-                Get-ChildItem $p -Depth 2 | Select-Object FullName
-              }
-            }
-            # Last resort: broad search
-            Write-Host "=== Broad filesystem search ==="
-            Get-ChildItem -Path "C:\Users" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 8 | ForEach-Object { Write-Host $_.FullName }
           }
-          # Verify
           if (Test-Path "C:\MT5\terminal64.exe") {
             Write-Host "=== MT5 ready at C:\MT5\terminal64.exe ==="
           } else {
-            Write-Host "::error::Could not find or copy MT5 terminal"
+            Write-Host "::error::Could not find MT5 terminal"
             exit 1
           }
 
       - name: Install Python packages
         run: pip install MetaTrader5 yfinance pandas numpy
+
+      - name: Start MT5 terminal with credentials
+        shell: pwsh
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        run: |
+          $mt5 = "C:\MT5\terminal64.exe"
+          Write-Host "Starting MT5 with login credentials..."
+          # Start terminal in portable mode with broker credentials
+          # This lets it connect to the broker BEFORE Python tries IPC
+          Start-Process -FilePath $mt5 -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
+          Write-Host "Waiting 60s for MT5 to boot and connect to broker..."
+          Start-Sleep -Seconds 60
+          # Verify the process is running
+          $running = Get-Process -Name "terminal64" -ErrorAction SilentlyContinue
+          if ($running) {
+            Write-Host "MT5 terminal is running (PID: $($running.Id))"
+          } else {
+            Write-Host "::warning::MT5 process not found — it may have crashed"
+            # List any MetaTrader-related processes
+            Get-Process | Where-Object { $_.Name -like "*meta*" -or $_.Name -like "*terminal*" } | Format-Table Name, Id, StartTime
+          }
 
       - name: "Verify Symbols"
         env:
@@ -147,7 +150,7 @@ jobs:
         id: cache-mt5
         with:
           path: C:\MT5
-          key: mt5-terminal-v3
+          key: mt5-terminal-v4
       - name: Download & install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         shell: pwsh
@@ -164,6 +167,15 @@ jobs:
           if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
+      - name: Start MT5 with credentials
+        shell: pwsh
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        run: |
+          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
+          Start-Sleep -Seconds 60
       - name: "London Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -191,7 +203,7 @@ jobs:
         id: cache-mt5
         with:
           path: C:\MT5
-          key: mt5-terminal-v3
+          key: mt5-terminal-v4
       - name: Download & install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         shell: pwsh
@@ -208,6 +220,15 @@ jobs:
           if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
+      - name: Start MT5 with credentials
+        shell: pwsh
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        run: |
+          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
+          Start-Sleep -Seconds 60
       - name: "Overlap Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -235,7 +256,7 @@ jobs:
         id: cache-mt5
         with:
           path: C:\MT5
-          key: mt5-terminal-v3
+          key: mt5-terminal-v4
       - name: Download & install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         shell: pwsh
@@ -252,6 +273,15 @@ jobs:
           if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
+      - name: Start MT5 with credentials
+        shell: pwsh
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        run: |
+          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
+          Start-Sleep -Seconds 60
       - name: "NY Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -280,7 +310,7 @@ jobs:
         id: cache-mt5
         with:
           path: C:\MT5
-          key: mt5-terminal-v3
+          key: mt5-terminal-v4
       - name: Download & install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         shell: pwsh
@@ -297,6 +327,15 @@ jobs:
           if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
+      - name: Start MT5 with credentials
+        shell: pwsh
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        run: |
+          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
+          Start-Sleep -Seconds 60
       - name: "Monitor Positions"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -324,7 +363,7 @@ jobs:
         id: cache-mt5
         with:
           path: C:\MT5
-          key: mt5-terminal-v3
+          key: mt5-terminal-v4
       - name: Download & install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         shell: pwsh
@@ -341,6 +380,15 @@ jobs:
           if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
+      - name: Start MT5 with credentials
+        shell: pwsh
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+        run: |
+          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable", "/login:$env:HFM_MT5_LOGIN", "/password:$env:HFM_MT5_PASSWORD", "/server:$env:HFM_MT5_SERVER" -WindowStyle Hidden
+          Start-Sleep -Seconds 60
       - name: "Monitor + Summary"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}

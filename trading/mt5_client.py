@@ -100,17 +100,17 @@ class MT5Client:
         server: str = None,
         path: str = None,
         retries: int = 3,
-        retry_delay: int = 15,
+        retry_delay: int = 20,
     ) -> bool:
         """
-        Initialize MT5 terminal and log in.
+        Connect to an already-running MT5 terminal, or start one.
 
         Parameters can be passed directly or read from environment variables:
             HFM_MT5_LOGIN, HFM_MT5_PASSWORD, HFM_MT5_SERVER
 
-        On fresh installs (e.g., GitHub Actions), we pass login/password/server
-        directly to mt5.initialize() so the terminal can connect to the broker
-        during startup — this avoids the IPC timeout on first run.
+        On GitHub Actions the terminal should already be running (started
+        via command-line with /login /password /server flags in a previous
+        workflow step).  mt5.initialize(path=...) just attaches to it.
         """
         import time
 
@@ -123,41 +123,69 @@ class MT5Client:
                          "HFM_MT5_PASSWORD, HFM_MT5_SERVER.")
             return False
 
-        # ── Build init kwargs — pass everything upfront ──────
-        init_kwargs = {
-            "login": login,
-            "password": password,
-            "server": server,
-            "timeout": 120_000,   # 2 min timeout for first-run setup
-            "portable": True,     # Use portable mode (works with copied installs)
-        }
-        if path:
-            init_kwargs["path"] = path
-
         # ── Try initialize with retries ──────────────────────
+        # Strategy: first try minimal init (just path) to attach to
+        # an already-running terminal. If that fails, try full init
+        # with credentials so initialize() can start the terminal itself.
+
         initialized = False
         for attempt in range(1, retries + 1):
-            logger.info(f"MT5 initialize attempt {attempt}/{retries} "
-                        f"(path={path}, server={server}, login={login})...")
+            logger.info(f"MT5 initialize attempt {attempt}/{retries}...")
+
+            # Attempt A: minimal init — attach to running terminal
+            init_kwargs = {"timeout": 60_000}
+            if path:
+                init_kwargs["path"] = path
 
             if mt5.initialize(**init_kwargs):
+                logger.info("Attached to running MT5 terminal")
                 initialized = True
-                logger.info("MT5 initialized + logged in successfully")
                 break
 
-            err = mt5.last_error()
-            logger.warning(f"  Attempt {attempt} failed: {err}")
-            mt5.shutdown()  # Clean up before retry
+            err_a = mt5.last_error()
+            logger.warning(f"  Attach failed: {err_a}")
+            mt5.shutdown()
+
+            # Attempt B: full init — let initialize() start terminal
+            logger.info("  Trying full initialize with credentials...")
+            init_kwargs_full = {
+                "login": login,
+                "password": password,
+                "server": server,
+                "timeout": 120_000,
+                "portable": True,
+            }
+            if path:
+                init_kwargs_full["path"] = path
+
+            if mt5.initialize(**init_kwargs_full):
+                logger.info("MT5 started and connected via full init")
+                initialized = True
+                break
+
+            err_b = mt5.last_error()
+            logger.warning(f"  Full init also failed: {err_b}")
+            mt5.shutdown()
 
             if attempt < retries:
-                wait = retry_delay * attempt  # Increasing backoff
+                wait = retry_delay * attempt
                 logger.info(f"  Waiting {wait}s before retry...")
                 time.sleep(wait)
 
         if not initialized:
             err = mt5.last_error()
-            logger.error(f"MT5 initialize failed after {retries} attempts: {err}")
+            logger.error(f"MT5 init failed after {retries} attempts: {err}")
             return False
+
+        # ── Ensure we're logged in to the right account ──────
+        acct = mt5.account_info()
+        if acct is None or acct.login != login:
+            logger.info(f"Logging in to account {login}...")
+            if not mt5.login(login=login, password=password, server=server):
+                err = mt5.last_error()
+                logger.error(f"MT5 login failed: {err}")
+                mt5.shutdown()
+                return False
 
         self._connected = True
         info = mt5.account_info()
@@ -167,7 +195,7 @@ class MT5Client:
                 f"Balance: {info.balance} {info.currency}"
             )
         else:
-            logger.info(f"Connected to MT5 (account info not yet available)")
+            logger.info("Connected to MT5 (account info not yet available)")
         return True
 
     def disconnect(self):
