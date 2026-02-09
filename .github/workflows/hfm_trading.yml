@@ -1,7 +1,6 @@
 name: HFM Auto-Trader
 
 on:
-  # ── Scheduled sessions (all times UTC, Mon-Fri) ─────────
   schedule:
     - cron: "0 8 * * 1-5"     # LONDON OPEN entry
     - cron: "0 10 * * 1-5"    # LONDON monitor
@@ -30,25 +29,10 @@ on:
         default: true
         type: boolean
 
-# ─────────────────────────────────────────────────────────
-# NOTE on HFM_MT5_SERVER secret:
-#   GitHub Actions cannot resolve MT5 server hostnames.
-#   You MUST use the server's IP:port instead of the name.
-#   e.g. "169.57.155.230:6443" instead of "HFMarketsGlobal-Demo"
-#
-#   To find the IP: open MT5 on your computer → File → 
-#   Open an Account → find your server → check the address
-#   shown (or use nslookup on the server hostname).
-# ─────────────────────────────────────────────────────────
+# NOTE: HFM_MT5_SERVER secret must be IP:port (e.g. 18.134.38.113:1950)
+#       Server hostnames do NOT work on GitHub Actions.
 
 jobs:
-  # ═══════════════════════════════════════════════════════
-  #  One-time setup: build and cache MT5 + Python libs
-  #  (runs automatically if cache is missing)
-  # ═══════════════════════════════════════════════════════
-
-  # ═══════════════════════════════════════════════════════
-  #  Verify — check MT5 connection & symbol availability
   # ═══════════════════════════════════════════════════════
   verify:
     runs-on: windows-latest
@@ -56,45 +40,20 @@ jobs:
     if: github.event.inputs.mode == 'verify'
     steps:
       - uses: actions/checkout@v4
-
-      - name: Cache Python setup
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.tool_cache }}/Python/3.11.9
-          key: python-${{ runner.os }}-3.11
-        id: cache-python
-
-      - name: Set up Python
-        if: steps.cache-python.outputs.cache-hit != 'true'
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Cache MT5 installation
-        uses: actions/cache@v4
+          cache: "pip"
+      - uses: actions/cache@v4
         id: cache-mt5
         with:
           path: 'C:\Program Files\MetaTrader 5'
           key: ${{ runner.os }}-mt5-choco-v1
-
-      - name: Install MT5 via Chocolatey
+      - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
-
-      - name: Cache Python packages
-        uses: actions/cache@v4
-        with:
-          path: libs
-          key: ${{ runner.os }}-libs-v1
-        id: cache-libs
-
-      - name: Install Python packages
-        if: steps.cache-libs.outputs.cache-hit != 'true'
-        run: |
-          mkdir libs -ErrorAction SilentlyContinue
-          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
-        shell: pwsh
-
+      - name: Install packages
+        run: pip install MetaTrader5 yfinance pandas numpy
       - name: "Verify Symbols"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -105,8 +64,6 @@ jobs:
         run: python -m trading.run_trading --mode verify --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
-  #  London Open — Entry (08:00 UTC)
-  # ═══════════════════════════════════════════════════════
   london-entry:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -115,15 +72,10 @@ jobs:
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'london')
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: ${{ runner.tool_cache }}/Python/3.11.9
-          key: python-${{ runner.os }}-3.11
-        id: cache-python
       - uses: actions/setup-python@v5
-        if: steps.cache-python.outputs.cache-hit != 'true'
         with:
           python-version: "3.11"
+          cache: "pip"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
@@ -132,17 +84,8 @@ jobs:
       - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
-      - uses: actions/cache@v4
-        with:
-          path: libs
-          key: ${{ runner.os }}-libs-v1
-        id: cache-libs
       - name: Install packages
-        if: steps.cache-libs.outputs.cache-hit != 'true'
-        run: |
-          mkdir libs -ErrorAction SilentlyContinue
-          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
-        shell: pwsh
+        run: pip install MetaTrader5 yfinance pandas numpy
       - name: "London Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -153,8 +96,6 @@ jobs:
         run: python -m trading.run_trading --mode entry --session london --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
-  #  London/NY Overlap — Entry (13:00 UTC)
-  # ═══════════════════════════════════════════════════════
   overlap-entry:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -163,15 +104,10 @@ jobs:
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'overlap')
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: ${{ runner.tool_cache }}/Python/3.11.9
-          key: python-${{ runner.os }}-3.11
-        id: cache-python
       - uses: actions/setup-python@v5
-        if: steps.cache-python.outputs.cache-hit != 'true'
         with:
           python-version: "3.11"
+          cache: "pip"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
@@ -180,17 +116,8 @@ jobs:
       - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
-      - uses: actions/cache@v4
-        with:
-          path: libs
-          key: ${{ runner.os }}-libs-v1
-        id: cache-libs
       - name: Install packages
-        if: steps.cache-libs.outputs.cache-hit != 'true'
-        run: |
-          mkdir libs -ErrorAction SilentlyContinue
-          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
-        shell: pwsh
+        run: pip install MetaTrader5 yfinance pandas numpy
       - name: "Overlap Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -201,8 +128,6 @@ jobs:
         run: python -m trading.run_trading --mode entry --session overlap --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
-  #  NY Open — Entry (14:30 UTC)
-  # ═══════════════════════════════════════════════════════
   ny-entry:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -211,15 +136,10 @@ jobs:
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'ny')
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: ${{ runner.tool_cache }}/Python/3.11.9
-          key: python-${{ runner.os }}-3.11
-        id: cache-python
       - uses: actions/setup-python@v5
-        if: steps.cache-python.outputs.cache-hit != 'true'
         with:
           python-version: "3.11"
+          cache: "pip"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
@@ -228,17 +148,8 @@ jobs:
       - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
-      - uses: actions/cache@v4
-        with:
-          path: libs
-          key: ${{ runner.os }}-libs-v1
-        id: cache-libs
       - name: Install packages
-        if: steps.cache-libs.outputs.cache-hit != 'true'
-        run: |
-          mkdir libs -ErrorAction SilentlyContinue
-          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
-        shell: pwsh
+        run: pip install MetaTrader5 yfinance pandas numpy
       - name: "NY Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -249,8 +160,6 @@ jobs:
         run: python -m trading.run_trading --mode entry --session ny --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
-  #  Monitor — trail stops & check reversals
-  # ═══════════════════════════════════════════════════════
   monitor:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -260,15 +169,10 @@ jobs:
       github.event.inputs.mode == 'monitor'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: ${{ runner.tool_cache }}/Python/3.11.9
-          key: python-${{ runner.os }}-3.11
-        id: cache-python
       - uses: actions/setup-python@v5
-        if: steps.cache-python.outputs.cache-hit != 'true'
         with:
           python-version: "3.11"
+          cache: "pip"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
@@ -277,17 +181,8 @@ jobs:
       - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
-      - uses: actions/cache@v4
-        with:
-          path: libs
-          key: ${{ runner.os }}-libs-v1
-        id: cache-libs
       - name: Install packages
-        if: steps.cache-libs.outputs.cache-hit != 'true'
-        run: |
-          mkdir libs -ErrorAction SilentlyContinue
-          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
-        shell: pwsh
+        run: pip install MetaTrader5 yfinance pandas numpy
       - name: "Monitor Positions"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -298,8 +193,6 @@ jobs:
         run: python -m trading.run_trading --mode monitor --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
-  #  End of Day — Summary
-  # ═══════════════════════════════════════════════════════
   eod-summary:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -308,15 +201,10 @@ jobs:
       github.event.inputs.mode == 'summary'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: ${{ runner.tool_cache }}/Python/3.11.9
-          key: python-${{ runner.os }}-3.11
-        id: cache-python
       - uses: actions/setup-python@v5
-        if: steps.cache-python.outputs.cache-hit != 'true'
         with:
           python-version: "3.11"
+          cache: "pip"
       - uses: actions/cache@v4
         id: cache-mt5
         with:
@@ -325,17 +213,8 @@ jobs:
       - name: Install MT5
         if: steps.cache-mt5.outputs.cache-hit != 'true'
         run: choco install metatrader5 --pre -y
-      - uses: actions/cache@v4
-        with:
-          path: libs
-          key: ${{ runner.os }}-libs-v1
-        id: cache-libs
       - name: Install packages
-        if: steps.cache-libs.outputs.cache-hit != 'true'
-        run: |
-          mkdir libs -ErrorAction SilentlyContinue
-          pip install MetaTrader5 yfinance pandas numpy --target ./libs --no-user
-        shell: pwsh
+        run: pip install MetaTrader5 yfinance pandas numpy
       - name: "Monitor + Summary"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
