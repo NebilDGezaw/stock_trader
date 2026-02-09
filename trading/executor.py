@@ -33,11 +33,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ExecutorConfig:
     """Safety limits and risk parameters."""
-    max_concurrent_positions: int = 3
-    max_daily_loss_pct: float = 5.0       # stop trading if daily loss > 5%
+    max_concurrent_positions: int = 5
+    max_daily_loss_pct: float = 10.0      # stop trading if daily loss > 10%
     default_risk_pct: float = 0.02        # 2% of equity per trade
     min_risk_reward: float = 2.0          # minimum R:R to execute
-    max_risk_per_trade: float = 1.0       # hard cap: max $1 risk per trade
+    max_risk_per_trade: float = 0.0       # 0 = no hard cap (uses risk_pct only)
     min_lot_size: float = 0.01            # minimum lot size (broker floor)
     dry_run: bool = False                 # log only, don't place orders
 
@@ -87,8 +87,9 @@ def calculate_lot_size(
         return 0.0
 
     risk_amount = equity * risk_pct
-    # Hard cap: never risk more than max_risk_amount per trade
-    risk_amount = min(risk_amount, max_risk_amount)
+    # Hard cap: if max_risk_amount > 0, enforce it
+    if max_risk_amount > 0:
+        risk_amount = min(risk_amount, max_risk_amount)
     contract_size = symbol_info.get("trade_contract_size", 100000)
 
     # For forex: contract_size is typically 100,000 (standard lot)
