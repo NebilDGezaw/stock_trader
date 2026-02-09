@@ -120,25 +120,6 @@ jobs:
       - name: Install Python packages
         run: pip install MetaTrader5 yfinance pandas numpy
 
-      - name: Start MT5 terminal
-        shell: pwsh
-        run: |
-          $mt5 = "C:\MT5\terminal64.exe"
-          if (-not (Test-Path $mt5)) {
-            Write-Host "MT5 not at cached location, searching..."
-            $found = Get-ChildItem -Path "C:\" -Filter "terminal64.exe" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 1
-            if ($found) { $mt5 = $found.FullName }
-          }
-          if (Test-Path $mt5) {
-            Write-Host "Starting MT5 from: $mt5"
-            Start-Process -FilePath $mt5 -ArgumentList "/portable" -WindowStyle Hidden
-            Start-Sleep -Seconds 15
-            Write-Host "MT5 terminal started"
-          } else {
-            Write-Host "::error::MT5 terminal not found anywhere"
-            exit 1
-          }
-
       - name: "Verify Symbols"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -146,7 +127,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode verify
+        run: python -m trading.run_trading --mode verify --mt5-path "C:\MT5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   #  London Open — Entry (08:00 UTC)
@@ -183,11 +164,6 @@ jobs:
           if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
-      - name: Start MT5
-        shell: pwsh
-        run: |
-          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
-          Start-Sleep -Seconds 15
       - name: "London Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -195,7 +171,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode entry --session london --dry-run
+        run: python -m trading.run_trading --mode entry --session london --dry-run --mt5-path "C:\MT5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   #  London/NY Overlap — Entry (13:00 UTC)
@@ -232,11 +208,6 @@ jobs:
           if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
-      - name: Start MT5
-        shell: pwsh
-        run: |
-          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
-          Start-Sleep -Seconds 15
       - name: "Overlap Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -244,7 +215,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode entry --session overlap --dry-run
+        run: python -m trading.run_trading --mode entry --session overlap --dry-run --mt5-path "C:\MT5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   #  NY Open — Entry (14:30 UTC)
@@ -281,11 +252,6 @@ jobs:
           if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
-      - name: Start MT5
-        shell: pwsh
-        run: |
-          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
-          Start-Sleep -Seconds 15
       - name: "NY Entry"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -293,7 +259,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode entry --session ny --dry-run
+        run: python -m trading.run_trading --mode entry --session ny --dry-run --mt5-path "C:\MT5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   #  Monitor — trail stops & check reversals (10:00, 16:00)
@@ -331,11 +297,6 @@ jobs:
           if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
-      - name: Start MT5
-        shell: pwsh
-        run: |
-          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
-          Start-Sleep -Seconds 15
       - name: "Monitor Positions"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -343,7 +304,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode monitor --dry-run
+        run: python -m trading.run_trading --mode monitor --dry-run --mt5-path "C:\MT5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   #  End of Day — Summary (20:30 UTC)
@@ -380,11 +341,6 @@ jobs:
           if (-not (Test-Path "C:\MT5\terminal64.exe")) { Write-Host "::error::MT5 install failed"; exit 1 }
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
-      - name: Start MT5
-        shell: pwsh
-        run: |
-          Start-Process -FilePath "C:\MT5\terminal64.exe" -ArgumentList "/portable" -WindowStyle Hidden
-          Start-Sleep -Seconds 15
       - name: "Monitor + Summary"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
@@ -393,5 +349,5 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python -m trading.run_trading --mode monitor --dry-run
-          python -m trading.run_trading --mode summary
+          python -m trading.run_trading --mode monitor --dry-run --mt5-path "C:\MT5\terminal64.exe"
+          python -m trading.run_trading --mode summary --mt5-path "C:\MT5\terminal64.exe"

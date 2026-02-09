@@ -99,13 +99,20 @@ class MT5Client:
         password: str = None,
         server: str = None,
         path: str = None,
+        retries: int = 5,
+        retry_delay: int = 10,
     ) -> bool:
         """
         Initialize MT5 terminal and log in.
 
         Parameters can be passed directly or read from environment variables:
             HFM_MT5_LOGIN, HFM_MT5_PASSWORD, HFM_MT5_SERVER
+
+        The `retries` and `retry_delay` parameters handle IPC timeout issues
+        on cold starts (e.g., GitHub Actions where MT5 just launched).
         """
+        import time
+
         login = login or int(os.environ.get("HFM_MT5_LOGIN", 0))
         password = password or os.environ.get("HFM_MT5_PASSWORD", "")
         server = server or os.environ.get("HFM_MT5_SERVER", "")
@@ -119,11 +126,27 @@ class MT5Client:
         if path:
             init_kwargs["path"] = path
 
-        if not mt5.initialize(**init_kwargs):
+        # ── Try initialize with retries (MT5 may need time to start) ──
+        initialized = False
+        for attempt in range(1, retries + 1):
+            logger.info(f"MT5 initialize attempt {attempt}/{retries}...")
+            if mt5.initialize(**init_kwargs):
+                initialized = True
+                logger.info("MT5 initialized successfully")
+                break
             err = mt5.last_error()
-            logger.error(f"MT5 initialize failed: {err}")
+            logger.warning(f"  Attempt {attempt} failed: {err}")
+            if attempt < retries:
+                logger.info(f"  Waiting {retry_delay}s before retry...")
+                time.sleep(retry_delay)
+            mt5.shutdown()  # Clean up before retry
+
+        if not initialized:
+            err = mt5.last_error()
+            logger.error(f"MT5 initialize failed after {retries} attempts: {err}")
             return False
 
+        # ── Login ─────────────────────────────────────────────
         authorized = mt5.login(login=login, password=password, server=server)
         if not authorized:
             err = mt5.last_error()
