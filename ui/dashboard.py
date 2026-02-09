@@ -562,105 +562,50 @@ def render_scanner_results(results, currency_sym, show_obs, show_fvgs,
 
     st.markdown("")
 
-    for r in results:
+    for idx, r in enumerate(results):
         s = r["setup"]
         abg = action_bg(action_class(s.action))
         cur = r["df"].iloc[-1]["Close"]
         prv = r["df"].iloc[-2]["Close"] if len(r["df"]) > 1 else cur
-        c = ((cur - prv) / prv) * 100
-        cc = "#4ade80" if c >= 0 else "#f87171"
-        cs = "+" if c >= 0 else ""
+        chg = ((cur - prv) / prv) * 100
+        cc = "#4ade80" if chg >= 0 else "#f87171"
+        cs = "+" if chg >= 0 else ""
         conf = confidence_badge(s.signals)
         is_actionable = s.action.value != "HOLD"
 
-        # Compact summary for the expander header
-        if is_actionable:
-            header_summary = (
-                f"{s.ticker}  ·  {s.action.value}  ·  "
-                f"Entry {fmt_price(s.entry_price, currency_sym)}  ·  "
-                f"R:R 1:{s.risk_reward:.1f}  ·  {len(s.signals)} signals"
-            )
-        else:
-            header_summary = (
-                f"{s.ticker}  ·  HOLD  ·  "
-                f"{fmt_price(cur, currency_sym)} {cs}{c:.2f}%  ·  "
-                f"{len(s.signals)} signals"
-            )
+        # ── Row: info on left, button on right ──
+        col_info, col_btn = st.columns([5, 1])
 
-        with st.expander(header_summary, expanded=False):
-            # ── Top banner with action/bias/score ──
+        with col_info:
+            if is_actionable:
+                details_line = (
+                    f'<b>Entry</b> {fmt_price(s.entry_price, currency_sym)} '
+                    f'<span style="color:{cc};">{cs}{chg:.2f}%</span>'
+                    f' · <b>SL</b> {fmt_price(s.stop_loss, currency_sym)}'
+                    f' · <b>TP</b> {fmt_price(s.take_profit, currency_sym)}'
+                    f' · R:R 1:{s.risk_reward:.1f}'
+                    f' · {conf} · {len(s.signals)} signals'
+                )
+            else:
+                details_line = (
+                    f'{fmt_price(cur, currency_sym)} '
+                    f'<span style="color:{cc};">{cs}{chg:.2f}%</span>'
+                    f' · {conf} · {len(s.signals)} signals'
+                    f' · <span style="opacity:0.6;">No new trade</span>'
+                )
+
             st.markdown(
                 f'<div class="scanner-row">'
                 f'<div class="scanner-ticker">{s.ticker}</div>'
                 f'<div class="scanner-action" style="{abg}">{s.action.value}</div>'
                 f'<div><span class="bias-badge {bias_class(s.bias)}">{s.bias.value.upper()}</span></div>'
                 f'<div class="scanner-score">{s.composite_score}</div>'
-                f'<div class="scanner-details">{fmt_price(cur, currency_sym)} '
-                f'<span style="color:{cc};">{cs}{c:.2f}%</span>'
-                f' · {conf}</div></div>',
+                f'<div class="scanner-details">{details_line}</div></div>',
                 unsafe_allow_html=True,
             )
 
-            # ── Trade Levels (always shown — needed for exits too) ──
-            if is_actionable:
-                level_label = "New Trade Levels"
-            else:
-                level_label = "Exit Levels (if you already hold a position)"
-
-            st.markdown(f"**{level_label}**")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Entry", fmt_price(s.entry_price, currency_sym))
-            c2.metric("Stop Loss", fmt_price(s.stop_loss, currency_sym),
-                       delta=f"{((s.stop_loss - s.entry_price) / s.entry_price * 100):+.2f}%",
-                       delta_color="inverse")
-            c3.metric("Take Profit", fmt_price(s.take_profit, currency_sym),
-                       delta=f"{((s.take_profit - s.entry_price) / s.entry_price * 100):+.2f}%")
-            c4.metric("R : R", f"1 : {s.risk_reward:.1f}")
-            c5.metric("Signals", f"{len(s.signals)}")
-
-            # ── Risk per share ──
-            risk_ps = abs(s.entry_price - s.stop_loss)
-            reward_ps = abs(s.take_profit - s.entry_price)
-            st.markdown(
-                f"<div style='opacity:0.7; font-size:0.85em; margin-top:-0.5em;'>"
-                f"Risk/unit: {currency_sym}{risk_ps:.4f} · "
-                f"Reward/unit: {currency_sym}{reward_ps:.4f} · "
-                f"Position size: {s.position_size}</div>",
-                unsafe_allow_html=True,
-            )
-
-            # ── Individual Signals Breakdown ──
-            if s.signals:
-                st.markdown("**Signals Breakdown**")
-                for sig in s.signals:
-                    icon = "🟢" if sig.bias.value == "bullish" else "🔴" if sig.bias.value == "bearish" else "⚪"
-                    score_color = "#4ade80" if sig.score > 0 else "#f87171" if sig.score < 0 else "#94a3b8"
-                    st.markdown(
-                        f'<div style="display:flex; align-items:center; gap:8px; '
-                        f'padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.05);">'
-                        f'<span>{icon}</span>'
-                        f'<span style="min-width:180px;">{sig.signal_type.value.replace("_", " ").title()}</span>'
-                        f'<span style="color:{score_color}; font-weight:600; min-width:40px;">'
-                        f'{sig.score:+d}</span>'
-                        f'<span style="opacity:0.7; font-size:0.9em;">{sig.details}</span></div>',
-                        unsafe_allow_html=True,
-                    )
-
-            # ── Chart (compact preview) ──
-            try:
-                ch = build_main_chart(
-                    r["df"], r["strategy"],
-                    show_order_blocks=show_obs, show_fvgs=show_fvgs,
-                    show_liquidity=show_liq, show_structure=show_structure,
-                    show_trade_levels=show_trade, show_premium_discount=show_pd,
-                    height=380,
-                )
-                st.plotly_chart(ch, use_container_width=True, config={"displayModeBar": True, "displaylogo": False})
-            except Exception as _chart_err:
-                st.warning(f"Chart unavailable for {r['ticker']}: {_chart_err}")
-
-            # ── Navigate to full detail page ──
-            if st.button(f"🔎 View Full Analysis for {s.ticker}", key=f"goto_{s.ticker}_{id(r)}",
+        with col_btn:
+            if st.button("Details →", key=f"goto_{s.ticker}_{idx}",
                          use_container_width=True):
                 st.session_state["_nav_ticker"] = s.ticker
                 st.session_state["mode_selector"] = "🔍 Search Ticker"
@@ -1254,10 +1199,19 @@ elif mode == "📋 Custom Scanner":
         unsafe_allow_html=True,
     )
 
+    # Initialize scanner session state
+    if "custom_scan_results" not in st.session_state:
+        st.session_state.custom_scan_results = None
+
     if st.button("🔍  Run Scanner", type="primary", use_container_width=True):
-        results = run_scan(tickers_list, period, interval, stock_mode=use_stock_mode)
-        render_scanner_results(results, currency_sym, show_obs, show_fvgs,
-                               show_liq, show_structure, show_trade, show_pd)
+        st.session_state.custom_scan_results = run_scan(
+            tickers_list, period, interval, stock_mode=use_stock_mode
+        )
+
+    if st.session_state.custom_scan_results:
+        render_scanner_results(st.session_state.custom_scan_results, currency_sym,
+                               show_obs, show_fvgs, show_liq, show_structure,
+                               show_trade, show_pd)
 
 
 # ══════════════════════════════════════════════════════════
