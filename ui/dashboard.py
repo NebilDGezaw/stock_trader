@@ -608,7 +608,7 @@ def render_scanner_results(results, currency_sym, show_obs, show_fvgs,
             use_container_width=True,
         ):
             st.session_state["_nav_ticker"] = s.ticker
-            st.session_state["mode_selector"] = "🔍 Search Ticker"
+            st.session_state["_nav_to_mode"] = "🔍 Search Ticker"
             st.rerun()
 
 
@@ -636,11 +636,18 @@ with st.sidebar:
     st.title("📊 Stock Trader")
     st.caption("ICT & Smart Money Concepts")
 
+    # ── Handle navigation from scanner "Details" button ──
+    # Must happen BEFORE the radio widget is created
+    _MODES = ["📊 Daily Analysis", "🔍 Search Ticker", "📋 Custom Scanner", "🧪 Backtest"]
+    _nav_mode = st.session_state.pop("_nav_to_mode", None)
+    if _nav_mode and _nav_mode in _MODES:
+        st.session_state["mode_selector"] = _nav_mode
+
     # ── Mode (top-level choice) ───────────────────
     st.subheader("Mode", divider="gray")
     mode = st.radio(
         "Analysis Mode",
-        ["📊 Daily Analysis", "🔍 Search Ticker", "📋 Custom Scanner", "🧪 Backtest"],
+        _MODES,
         label_visibility="collapsed",
         key="mode_selector",
     )
