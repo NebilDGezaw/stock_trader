@@ -1,0 +1,249 @@
+name: HFM Auto-Trader
+
+on:
+  # ── Scheduled sessions (all times UTC, Mon-Fri) ─────────
+  schedule:
+    # LONDON OPEN: 08:00 UTC (entry)
+    - cron: "0 8 * * 1-5"
+
+    # LONDON MID-SESSION: 10:00 UTC (monitor)
+    - cron: "0 10 * * 1-5"
+
+    # LONDON/NY OVERLAP: 13:00 UTC (entry)
+    - cron: "0 13 * * 1-5"
+
+    # NY OPEN: 14:30 UTC (entry)
+    - cron: "30 14 * * 1-5"
+
+    # NY MID-SESSION: 16:00 UTC (monitor)
+    - cron: "0 16 * * 1-5"
+
+    # END OF DAY: 20:30 UTC (monitor + summary)
+    - cron: "30 20 * * 1-5"
+
+  # ── Manual trigger ──────────────────────────────────────
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Trading mode"
+        required: true
+        default: "entry"
+        type: choice
+        options:
+          - entry
+          - monitor
+          - summary
+          - verify
+      session:
+        description: "Session (for entry mode)"
+        required: false
+        default: "london"
+        type: choice
+        options:
+          - london
+          - ny
+          - overlap
+      dry_run:
+        description: "Dry run (no real orders)"
+        required: false
+        default: true
+        type: boolean
+
+# ─────────────────────────────────────────────────────────
+#  JOBS
+# ─────────────────────────────────────────────────────────
+
+jobs:
+  # ═══════════════════════════════════════════════════════
+  #  London Open — Entry (08:00 UTC)
+  # ═══════════════════════════════════════════════════════
+  london-entry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event.schedule == '0 8 * * 1-5' ||
+      (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'london')
+    container:
+      image: ejtraderlab/metatrader5:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: |
+          pip install yfinance pandas numpy
+
+      - name: "🇬🇧 London Entry — Forex & Metals"
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: >-
+          python -m trading.run_trading
+          --mode entry
+          --session london
+          --dry-run
+
+  # ═══════════════════════════════════════════════════════
+  #  London Mid-Session — Monitor (10:00 UTC)
+  # ═══════════════════════════════════════════════════════
+  london-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event.schedule == '0 10 * * 1-5' ||
+      (github.event.inputs.mode == 'monitor')
+    container:
+      image: ejtraderlab/metatrader5:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: |
+          pip install yfinance pandas numpy
+
+      - name: "🔄 London Monitor — Trail & Check"
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: >-
+          python -m trading.run_trading
+          --mode monitor
+          --dry-run
+
+  # ═══════════════════════════════════════════════════════
+  #  London/NY Overlap — Entry (13:00 UTC)
+  # ═══════════════════════════════════════════════════════
+  overlap-entry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event.schedule == '0 13 * * 1-5' ||
+      (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'overlap')
+    container:
+      image: ejtraderlab/metatrader5:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: |
+          pip install yfinance pandas numpy
+
+      - name: "🔥 Overlap Entry — Peak Volume"
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: >-
+          python -m trading.run_trading
+          --mode entry
+          --session overlap
+          --dry-run
+
+  # ═══════════════════════════════════════════════════════
+  #  NY Open — Entry (14:30 UTC)
+  # ═══════════════════════════════════════════════════════
+  ny-entry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event.schedule == '30 14 * * 1-5' ||
+      (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'ny')
+    container:
+      image: ejtraderlab/metatrader5:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: |
+          pip install yfinance pandas numpy
+
+      - name: "🇺🇸 NY Entry — Crypto, Metals & Forex"
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: >-
+          python -m trading.run_trading
+          --mode entry
+          --session ny
+          --dry-run
+
+  # ═══════════════════════════════════════════════════════
+  #  NY Mid-Session — Monitor (16:00 UTC)
+  # ═══════════════════════════════════════════════════════
+  ny-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event.schedule == '0 16 * * 1-5' ||
+      (github.event.inputs.mode == 'monitor')
+    container:
+      image: ejtraderlab/metatrader5:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: |
+          pip install yfinance pandas numpy
+
+      - name: "🔄 NY Monitor — Trail & Check"
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: >-
+          python -m trading.run_trading
+          --mode monitor
+          --dry-run
+
+  # ═══════════════════════════════════════════════════════
+  #  End of Day — Monitor + Summary (20:30 UTC)
+  # ═══════════════════════════════════════════════════════
+  eod-summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event.schedule == '30 20 * * 1-5' ||
+      (github.event.inputs.mode == 'summary')
+    container:
+      image: ejtraderlab/metatrader5:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: |
+          pip install yfinance pandas numpy
+
+      - name: "🔄 End-of-Day Monitor"
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: >-
+          python -m trading.run_trading
+          --mode monitor
+          --dry-run
+
+      - name: "📋 Daily Summary"
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: >-
+          python -m trading.run_trading
+          --mode summary
