@@ -93,7 +93,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode entry --session london --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
+        run: python -m trading.run_trading --mode entry --session london --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   overlap-entry:
@@ -125,7 +125,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode entry --session overlap --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
+        run: python -m trading.run_trading --mode entry --session overlap --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   ny-entry:
@@ -157,7 +157,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode entry --session ny --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
+        run: python -m trading.run_trading --mode entry --session ny --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   monitor:
@@ -190,7 +190,7 @@ jobs:
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_trading --mode monitor --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
+        run: python -m trading.run_trading --mode monitor --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
   eod-summary:
@@ -223,5 +223,5 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python -m trading.run_trading --mode monitor --dry-run --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
+          python -m trading.run_trading --mode monitor --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
           python -m trading.run_trading --mode summary --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
