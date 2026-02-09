@@ -55,6 +55,33 @@ on:
 
 jobs:
   # ═══════════════════════════════════════════════════════
+  #  Verify — check symbol availability (manual only)
+  # ═══════════════════════════════════════════════════════
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.inputs.mode == 'verify'
+    container:
+      image: ejtraderlab/metatrader5:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: |
+          pip install yfinance pandas numpy
+
+      - name: "🔍 Verify Symbols on Broker"
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: >-
+          python -m trading.run_trading
+          --mode verify
+
+  # ═══════════════════════════════════════════════════════
   #  London Open — Entry (08:00 UTC)
   # ═══════════════════════════════════════════════════════
   london-entry:
