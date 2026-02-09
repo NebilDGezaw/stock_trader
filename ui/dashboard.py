@@ -573,43 +573,43 @@ def render_scanner_results(results, currency_sym, show_obs, show_fvgs,
         conf = confidence_badge(s.signals)
         is_actionable = s.action.value != "HOLD"
 
-        # ── Row: info on left, button on right ──
-        col_info, col_btn = st.columns([5, 1])
-
-        with col_info:
-            if is_actionable:
-                details_line = (
-                    f'<b>Entry</b> {fmt_price(s.entry_price, currency_sym)} '
-                    f'<span style="color:{cc};">{cs}{chg:.2f}%</span>'
-                    f' · <b>SL</b> {fmt_price(s.stop_loss, currency_sym)}'
-                    f' · <b>TP</b> {fmt_price(s.take_profit, currency_sym)}'
-                    f' · R:R 1:{s.risk_reward:.1f}'
-                    f' · {conf} · {len(s.signals)} signals'
-                )
-            else:
-                details_line = (
-                    f'{fmt_price(cur, currency_sym)} '
-                    f'<span style="color:{cc};">{cs}{chg:.2f}%</span>'
-                    f' · {conf} · {len(s.signals)} signals'
-                    f' · <span style="opacity:0.6;">No new trade</span>'
-                )
-
-            st.markdown(
-                f'<div class="scanner-row">'
-                f'<div class="scanner-ticker">{s.ticker}</div>'
-                f'<div class="scanner-action" style="{abg}">{s.action.value}</div>'
-                f'<div><span class="bias-badge {bias_class(s.bias)}">{s.bias.value.upper()}</span></div>'
-                f'<div class="scanner-score">{s.composite_score}</div>'
-                f'<div class="scanner-details">{details_line}</div></div>',
-                unsafe_allow_html=True,
+        if is_actionable:
+            details_line = (
+                f'<b>Entry</b> {fmt_price(s.entry_price, currency_sym)} '
+                f'<span style="color:{cc};">{cs}{chg:.2f}%</span>'
+                f' · <b>SL</b> {fmt_price(s.stop_loss, currency_sym)}'
+                f' · <b>TP</b> {fmt_price(s.take_profit, currency_sym)}'
+                f' · R:R 1:{s.risk_reward:.1f}'
+                f' · {conf} · {len(s.signals)} signals'
+            )
+        else:
+            details_line = (
+                f'{fmt_price(cur, currency_sym)} '
+                f'<span style="color:{cc};">{cs}{chg:.2f}%</span>'
+                f' · {conf} · {len(s.signals)} signals'
+                f' · <span style="opacity:0.6;">No new trade</span>'
             )
 
-        with col_btn:
-            if st.button("Details →", key=f"goto_{s.ticker}_{idx}",
-                         use_container_width=True):
-                st.session_state["_nav_ticker"] = s.ticker
-                st.session_state["mode_selector"] = "🔍 Search Ticker"
-                st.rerun()
+        # Info row
+        st.markdown(
+            f'<div class="scanner-row">'
+            f'<div class="scanner-ticker">{s.ticker}</div>'
+            f'<div class="scanner-action" style="{abg}">{s.action.value}</div>'
+            f'<div><span class="bias-badge {bias_class(s.bias)}">{s.bias.value.upper()}</span></div>'
+            f'<div class="scanner-score">{s.composite_score}</div>'
+            f'<div class="scanner-details">{details_line}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+        # Navigation button — directly below the row
+        if st.button(
+            f"🔎  View {s.ticker} Full Analysis — Chart, Signals & Trade Details",
+            key=f"goto_{s.ticker}_{idx}",
+            use_container_width=True,
+        ):
+            st.session_state["_nav_ticker"] = s.ticker
+            st.session_state["mode_selector"] = "🔍 Search Ticker"
+            st.rerun()
 
 
 def run_scan(tickers, period, interval, stock_mode):
