@@ -104,10 +104,10 @@ KILL_ZONES = {
 # ──────────────────────────────────────────────
 #  Risk Management
 # ──────────────────────────────────────────────
-RISK_PER_TRADE = 0.02           # 2% of capital per trade ($2,000 on 100k)
+RISK_PER_TRADE = 0.02           # 2% of capital per trade
 RISK_REWARD_MIN = 2.0           # minimum R:R to take a trade
 INITIAL_CAPITAL = 100_000       # starting capital ($)
-MAX_OPEN_POSITIONS = 5          # maximum concurrent positions
+MAX_OPEN_POSITIONS = 3          # maximum concurrent positions
 
 # ──────────────────────────────────────────────
 #  Fakeout Detection

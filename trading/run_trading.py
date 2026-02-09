@@ -155,8 +155,7 @@ def mode_entry(client: MT5Client, session_name: str, dry_run: bool):
         max_concurrent_positions=config.MAX_OPEN_POSITIONS,
         default_risk_pct=config.RISK_PER_TRADE,
         min_risk_reward=config.RISK_REWARD_MIN,
-        max_risk_per_trade=0.0,   # no hard cap — use full 2% of equity
-        max_daily_loss_pct=10.0,  # 10% daily loss circuit breaker
+        max_risk_per_trade=0.0,   # demo: no cap. For live, set to e.g. $1
         dry_run=dry_run,
     ))
 
