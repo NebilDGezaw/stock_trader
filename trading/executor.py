@@ -21,7 +21,7 @@ from typing import Optional
 import config
 from models.signals import TradeSetup, TradeAction
 from trading.mt5_client import MT5Client, OrderResult, MAGIC_NUMBER
-from trading.symbols import to_mt5, get_asset_type
+from trading.symbols import to_mt5, get_asset_type, get_asset_type_from_mt5
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +33,23 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ExecutorConfig:
     """Safety limits and risk parameters."""
-    max_concurrent_positions: int = 3
+    max_concurrent_positions: int = 9     # absolute cap across all classes
+    max_positions_per_class: dict = None  # per-class limits: {"forex": 3, "crypto": 3, ...}
     max_daily_loss_pct: float = 5.0       # stop trading if daily loss > 5%
     default_risk_pct: float = 0.02        # 2% of equity per trade
     min_risk_reward: float = 2.0          # minimum R:R to execute
     max_risk_per_trade: float = 0.0       # 0 = no hard cap; set to e.g. 1.0 for live
     min_lot_size: float = 0.01            # minimum lot size (broker floor)
     dry_run: bool = False                 # log only, don't place orders
+
+    def __post_init__(self):
+        if self.max_positions_per_class is None:
+            self.max_positions_per_class = {
+                "forex": 3,
+                "crypto": 3,
+                "commodity": 3,
+                "stock": 3,
+            }
 
 
 @dataclass
@@ -121,6 +131,15 @@ def calculate_lot_size(
 #  Trade Executor
 # ──────────────────────────────────────────────────────────
 
+def _classify_position(mt5_symbol: str) -> str:
+    """Classify an open position's MT5 symbol into an asset class.
+    Metals are grouped under 'commodity' for position counting."""
+    asset_type = get_asset_type_from_mt5(mt5_symbol)
+    if asset_type == "metal":
+        return "commodity"
+    return asset_type
+
+
 class TradeExecutor:
     """
     Executes trade setups on the HFM MT5 account.
@@ -187,15 +206,38 @@ class TradeExecutor:
                 reason=f"R:R {setup.risk_reward:.1f} < min {self.cfg.min_risk_reward:.1f}",
             )
 
-        # ── Safety Check 3: Max concurrent positions ─────
+        # ── Safety Check 3: Max concurrent positions (global + per-class) ─
         open_positions = self.client.get_open_positions()
+
+        # 3a: Global hard cap
         if len(open_positions) >= self.cfg.max_concurrent_positions:
             return ExecutionRecord(
                 ticker=ticker, mt5_symbol=mt5_sym, action=action,
                 volume=0, entry_price=setup.entry_price,
                 sl=setup.stop_loss, tp=setup.take_profit,
                 risk_reward=setup.risk_reward, executed=False,
-                reason=f"Max positions ({self.cfg.max_concurrent_positions}) reached",
+                reason=f"Max total positions ({self.cfg.max_concurrent_positions}) reached",
+            )
+
+        # 3b: Per-asset-class limit (diversification)
+        this_asset_class = get_asset_type(ticker)
+        # metals count as commodity for position limits
+        if this_asset_class == "metal":
+            this_asset_class = "commodity"
+
+        class_limit = self.cfg.max_positions_per_class.get(this_asset_class, 3)
+        class_count = sum(
+            1 for p in open_positions
+            if _classify_position(p.symbol) == this_asset_class
+        )
+        if class_count >= class_limit:
+            return ExecutionRecord(
+                ticker=ticker, mt5_symbol=mt5_sym, action=action,
+                volume=0, entry_price=setup.entry_price,
+                sl=setup.stop_loss, tp=setup.take_profit,
+                risk_reward=setup.risk_reward, executed=False,
+                reason=f"Max {this_asset_class} positions ({class_limit}) reached "
+                       f"({class_count} open)",
             )
 
         # ── Safety Check 4: No duplicate symbol ──────────

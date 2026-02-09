@@ -107,7 +107,16 @@ KILL_ZONES = {
 RISK_PER_TRADE = 0.02           # 2% of capital per trade
 RISK_REWARD_MIN = 2.0           # minimum R:R to take a trade
 INITIAL_CAPITAL = 100_000       # starting capital ($)
-MAX_OPEN_POSITIONS = 5          # maximum concurrent positions
+MAX_OPEN_POSITIONS = 9          # absolute maximum concurrent positions (fallback)
+
+# ── Per-asset-class position limits ──────────
+# Diversify: max 3 per category, so one class can't hog all the slots
+MAX_POSITIONS_PER_CLASS = {
+    "forex": 3,
+    "crypto": 3,
+    "commodity": 3,     # metals + energy
+    "stock": 3,         # if we ever add stocks
+}
 
 # ──────────────────────────────────────────────
 #  Fakeout Detection

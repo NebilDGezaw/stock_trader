@@ -132,6 +132,52 @@ def get_asset_type(yfinance_ticker: str) -> str:
     return "stock"
 
 
+# ── Known MT5 symbol sets for classification ──────────────
+
+_MT5_FOREX = {
+    "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "USDCAD", "NZDUSD",
+    "EURGBP", "EURJPY", "GBPJPY", "AUDNZD", "EURCHF", "CADJPY",
+    "USDZAR", "USDMXN", "USDTRY", "USDSEK", "USDNOK",
+    "USDCNH", "USDCZK", "USDDKK", "USDHKD", "USDHUF", "USDNGN",
+    "USDPLN", "USDRUB", "USDSGD",
+}
+
+_MT5_METALS = {"XAUUSD", "XAGUSD", "XPTUSD", "XPDUSD", "COPPER", "XAUEUR"}
+_MT5_ENERGY = {"USOIL", "UKOIL", "NGAS"}
+
+
+def get_asset_type_from_mt5(mt5_symbol: str) -> str:
+    """
+    Classify an MT5 symbol into an asset category.
+
+    Returns one of: 'forex', 'crypto', 'commodity', 'stock'
+    Metals and energy are grouped under 'commodity'.
+    """
+    s = mt5_symbol.strip().upper()
+
+    # Crypto: HFM uses # prefix
+    if s.startswith("#"):
+        return "crypto"
+
+    # Forex
+    if s in _MT5_FOREX:
+        return "forex"
+
+    # Metals + Energy → commodity
+    if s in _MT5_METALS or s in _MT5_ENERGY:
+        return "commodity"
+
+    # Try reverse lookup → yfinance ticker → classify that way
+    if s in MT5_TO_YFINANCE:
+        return get_asset_type(MT5_TO_YFINANCE[s])
+
+    # Fallback: if it looks like a 6-char pair, assume forex
+    if len(s) == 6 and s.isalpha():
+        return "forex"
+
+    return "stock"
+
+
 def verify_symbols(mt5_client, yfinance_tickers: list[str]) -> dict:
     """
     Verify which yfinance tickers have valid MT5 symbols on the broker.
