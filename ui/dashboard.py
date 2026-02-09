@@ -572,19 +572,36 @@ def render_scanner_results(results, currency_sym, show_obs, show_fvgs,
         cs = "+" if c >= 0 else ""
         conf = confidence_badge(s.signals)
 
+        # Build details line based on whether the signal is actionable
+        is_actionable = s.action.value != "HOLD"
+        if is_actionable:
+            details_html = (
+                f'<div class="scanner-details">'
+                f'<b>Entry</b> {fmt_price(s.entry_price, currency_sym)} '
+                f'<span style="color:{cc};">{cs}{c:.2f}%</span>'
+                f' · <b>SL</b> {fmt_price(s.stop_loss, currency_sym)}'
+                f' · <b>TP</b> {fmt_price(s.take_profit, currency_sym)}'
+                f' · R:R 1:{s.risk_reward:.1f}'
+                f' · {conf}'
+                f' · {len(s.signals)} signals</div>'
+            )
+        else:
+            details_html = (
+                f'<div class="scanner-details">'
+                f'{fmt_price(cur, currency_sym)} '
+                f'<span style="color:{cc};">{cs}{c:.2f}%</span>'
+                f' · {conf}'
+                f' · {len(s.signals)} signals'
+                f' · <span style="opacity:0.6;">No trade setup</span></div>'
+            )
+
         st.markdown(
             f'<div class="scanner-row">'
             f'<div class="scanner-ticker">{s.ticker}</div>'
             f'<div class="scanner-action" style="{abg}">{s.action.value}</div>'
             f'<div><span class="bias-badge {bias_class(s.bias)}">{s.bias.value.upper()}</span></div>'
             f'<div class="scanner-score">{s.composite_score}</div>'
-            f'<div class="scanner-details">{fmt_price(cur, currency_sym)} '
-            f'<span style="color:{cc};">{cs}{c:.2f}%</span>'
-            f' · SL {fmt_price(s.stop_loss, currency_sym)}'
-            f' · TP {fmt_price(s.take_profit, currency_sym)}'
-            f' · R:R 1:{s.risk_reward:.1f}'
-            f' · {conf}'
-            f' · {len(s.signals)} signals</div></div>',
+            f'{details_html}</div>',
             unsafe_allow_html=True,
         )
 
