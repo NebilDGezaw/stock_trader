@@ -254,6 +254,7 @@ class MT5Client:
             "volume_step": info.volume_step,
             "trade_contract_size": info.trade_contract_size,
             "currency_profit": info.currency_profit,
+            "filling_mode": info.filling_mode,
         }
 
     def list_symbols(self, group: str = None) -> list[str]:
@@ -319,6 +320,20 @@ class MT5Client:
             volume = max(sym_info.volume_min,
                          min(sym_info.volume_max,
                              round(volume / step) * step))
+            # Ensure clean float
+            volume = round(volume, 2)
+
+        # Detect supported filling mode from symbol info
+        filling_type = mt5.ORDER_FILLING_FOK  # default
+        if sym_info:
+            fm = sym_info.filling_mode
+            if fm & 1:    # SYMBOL_FILLING_FOK
+                filling_type = mt5.ORDER_FILLING_FOK
+            elif fm & 2:  # SYMBOL_FILLING_IOC
+                filling_type = mt5.ORDER_FILLING_IOC
+            else:
+                filling_type = mt5.ORDER_FILLING_RETURN
+            logger.info(f"Symbol {symbol}: filling_mode={fm}, using {filling_type}")
 
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -332,7 +347,7 @@ class MT5Client:
             "magic": MAGIC_NUMBER,
             "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_filling": filling_type,
         }
 
         # Pre-check
@@ -340,10 +355,17 @@ class MT5Client:
         if check is None or check.retcode != 0:
             msg = f"Order check failed: {check}"
             logger.warning(msg)
-            # Try ORDER_FILLING_RETURN as fallback (broker-dependent)
-            request["type_filling"] = mt5.ORDER_FILLING_RETURN
-            check = mt5.order_check(request)
-            if check is None or check.retcode != 0:
+            # Try all filling modes as fallback
+            for alt_fill in [mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_IOC,
+                             mt5.ORDER_FILLING_RETURN]:
+                if alt_fill == filling_type:
+                    continue
+                request["type_filling"] = alt_fill
+                check = mt5.order_check(request)
+                if check and check.retcode == 0:
+                    logger.info(f"Filling mode fallback worked: {alt_fill}")
+                    break
+            else:
                 return OrderResult(
                     success=False,
                     retcode=check.retcode if check else -1,
@@ -448,6 +470,18 @@ class MT5Client:
         tick = mt5.symbol_info_tick(position.symbol)
         price = tick.bid if is_buy else tick.ask
 
+        # Detect filling mode
+        sym_info = mt5.symbol_info(position.symbol)
+        filling_type = mt5.ORDER_FILLING_FOK
+        if sym_info:
+            fm = sym_info.filling_mode
+            if fm & 1:
+                filling_type = mt5.ORDER_FILLING_FOK
+            elif fm & 2:
+                filling_type = mt5.ORDER_FILLING_IOC
+            else:
+                filling_type = mt5.ORDER_FILLING_RETURN
+
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": position.symbol,
@@ -459,7 +493,7 @@ class MT5Client:
             "magic": MAGIC_NUMBER,
             "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_filling": filling_type,
         }
 
         result = mt5.order_send(request)
@@ -476,15 +510,19 @@ class MT5Client:
                 price=result.price,
             )
         else:
-            # Try FILLING_RETURN as fallback
-            request["type_filling"] = mt5.ORDER_FILLING_RETURN
-            result = mt5.order_send(request)
-            if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                return OrderResult(
-                    success=True, ticket=result.order, retcode=result.retcode,
-                    message="Position closed (RETURN fill)",
-                    volume=result.volume, price=result.price,
-                )
+            # Try all filling modes as fallback
+            for alt_fill in [mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_IOC,
+                             mt5.ORDER_FILLING_RETURN]:
+                if alt_fill == filling_type:
+                    continue
+                request["type_filling"] = alt_fill
+                result = mt5.order_send(request)
+                if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                    return OrderResult(
+                        success=True, ticket=result.order, retcode=result.retcode,
+                        message="Position closed",
+                        volume=result.volume, price=result.price,
+                    )
             msg = f"Close failed: retcode={result.retcode if result else 'None'}"
             logger.error(msg)
             return OrderResult(success=False, message=msg)
