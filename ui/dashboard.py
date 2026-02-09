@@ -646,18 +646,25 @@ def render_scanner_results(results, currency_sym, show_obs, show_fvgs,
                         unsafe_allow_html=True,
                     )
 
-            # ── Chart ──
+            # ── Chart (compact preview) ──
             try:
                 ch = build_main_chart(
                     r["df"], r["strategy"],
                     show_order_blocks=show_obs, show_fvgs=show_fvgs,
                     show_liquidity=show_liq, show_structure=show_structure,
                     show_trade_levels=show_trade, show_premium_discount=show_pd,
-                    height=480,
+                    height=380,
                 )
                 st.plotly_chart(ch, use_container_width=True, config={"displayModeBar": True, "displaylogo": False})
             except Exception as _chart_err:
                 st.warning(f"Chart unavailable for {r['ticker']}: {_chart_err}")
+
+            # ── Navigate to full detail page ──
+            if st.button(f"🔎 View Full Analysis for {s.ticker}", key=f"goto_{s.ticker}_{id(r)}",
+                         use_container_width=True):
+                st.session_state["_nav_ticker"] = s.ticker
+                st.session_state["mode_selector"] = "🔍 Search Ticker"
+                st.rerun()
 
 
 def run_scan(tickers, period, interval, stock_mode):
@@ -775,6 +782,12 @@ with st.sidebar:
 
     elif mode == "🔍 Search Ticker":
         st.subheader("Ticker", divider="gray")
+
+        # If navigated from scanner, override the ticker input directly
+        _nav_ticker = st.session_state.pop("_nav_ticker", None)
+        if _nav_ticker:
+            st.session_state[f"ticker_{asset_class}"] = _nav_ticker
+
         ticker = st.text_input(
             "Enter ticker symbol",
             value=ac["default_ticker"],
