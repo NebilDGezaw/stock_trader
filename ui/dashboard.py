@@ -601,15 +601,78 @@ def render_scanner_results(results, currency_sym, show_obs, show_fvgs,
             unsafe_allow_html=True,
         )
 
-        # Navigation button — directly below the row
-        if st.button(
-            f"🔎  View {s.ticker} Full Analysis — Chart, Signals & Trade Details",
-            key=f"goto_{s.ticker}_{idx}",
-            use_container_width=True,
-        ):
-            st.session_state["_nav_ticker"] = s.ticker
-            st.session_state["_nav_to_mode"] = "🔍 Search Ticker"
-            st.rerun()
+    # ── Ticker detail selector (below all rows) ──────────
+    st.markdown("---")
+    ticker_names = [r["setup"].ticker for r in results]
+    selected = st.selectbox(
+        "🔎 Select a ticker to view full analysis",
+        ["— Select —"] + ticker_names,
+        key="scanner_detail_select",
+    )
+
+    if selected != "— Select —":
+        # Find the selected result
+        sel_result = next((r for r in results if r["setup"].ticker == selected), None)
+        if sel_result:
+            sel_setup = sel_result["setup"]
+            sel_df = sel_result["df"]
+            sel_strat = sel_result["strategy"]
+
+            st.markdown(f"## {selected} — {sel_setup.action.value}")
+
+            # ── Trade levels ──
+            is_act = sel_setup.action.value != "HOLD"
+            level_label = "Trade Levels" if is_act else "Exit Levels (if you hold a position)"
+            st.markdown(f"**{level_label}**")
+
+            lc1, lc2, lc3, lc4, lc5 = st.columns(5)
+            lc1.metric("Entry", fmt_price(sel_setup.entry_price, currency_sym))
+            lc2.metric("Stop Loss", fmt_price(sel_setup.stop_loss, currency_sym),
+                        delta=f"{((sel_setup.stop_loss - sel_setup.entry_price) / sel_setup.entry_price * 100):+.2f}%" if sel_setup.entry_price else None,
+                        delta_color="inverse")
+            lc3.metric("Take Profit", fmt_price(sel_setup.take_profit, currency_sym),
+                        delta=f"{((sel_setup.take_profit - sel_setup.entry_price) / sel_setup.entry_price * 100):+.2f}%" if sel_setup.entry_price else None)
+            lc4.metric("R : R", f"1 : {sel_setup.risk_reward:.1f}")
+            lc5.metric("Signals", f"{len(sel_setup.signals)}")
+
+            # ── Chart ──
+            try:
+                detail_chart = build_main_chart(
+                    sel_df, sel_strat,
+                    show_order_blocks=show_obs, show_fvgs=show_fvgs,
+                    show_liquidity=show_liq, show_structure=show_structure,
+                    show_trade_levels=show_trade, show_premium_discount=show_pd,
+                    height=550,
+                )
+                st.plotly_chart(detail_chart, use_container_width=True,
+                                config={"displayModeBar": True, "displaylogo": False})
+            except Exception as _ce:
+                st.warning(f"Chart error: {_ce}")
+
+            # ── Score breakdown ──
+            try:
+                gauge = build_score_gauge(sel_strat.bullish_score, sel_strat.bearish_score)
+                st.plotly_chart(gauge, use_container_width=True, config={"displayModeBar": False})
+
+                sc1, sc2, sc3 = st.columns(3)
+                sc1.metric("Bullish Score", sel_strat.bullish_score)
+                sc2.metric("Bearish Score", sel_strat.bearish_score)
+                sc3.metric("Net Score", sel_strat.net_score)
+            except Exception:
+                pass
+
+            # ── Signals list ──
+            if sel_setup.signals:
+                st.markdown("**All Signals**")
+                for sig in sel_setup.signals:
+                    nice = sig.signal_type.value.replace("_", " ").title()
+                    st.markdown(
+                        f'<div class="signal-card">{sig_icon(sig)}'
+                        f'<div class="signal-body"><div class="signal-type">{nice}</div>'
+                        f'<div class="signal-detail">{sig.details}</div></div>'
+                        f'<div class="signal-score">+{sig.score}</div></div>',
+                        unsafe_allow_html=True,
+                    )
 
 
 def run_scan(tickers, period, interval, stock_mode):
