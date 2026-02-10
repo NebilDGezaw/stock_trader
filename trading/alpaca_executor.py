@@ -263,6 +263,17 @@ class AlpacaExecutor:
                 reason=f"Asset {ticker} is not tradeable on Alpaca",
             )
 
+        # ── Safety Check 7: Can't short non-shortable assets ─
+        is_sell = setup.action in (TradeAction.SELL, TradeAction.STRONG_SELL)
+        if is_sell and not asset.get("shortable", False):
+            return ExecutionRecord(
+                ticker=ticker, action=action, qty=0,
+                entry_price=setup.entry_price,
+                sl=setup.stop_loss, tp=setup.take_profit,
+                risk_reward=setup.risk_reward, executed=False,
+                reason=f"{ticker} cannot be sold short on Alpaca",
+            )
+
         # ── Calculate share size ─────────────────────────
         risk_pct = (
             self.cfg.leveraged_risk_pct if is_leveraged

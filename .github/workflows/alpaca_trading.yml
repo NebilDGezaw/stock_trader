@@ -49,6 +49,14 @@ on:
         default: true
         type: boolean
 
+# Reusable env block
+env:
+  ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+  ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+  ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
 jobs:
   # ═══════════════════════════════════════════════════════
   verify:
@@ -64,12 +72,6 @@ jobs:
       - name: Install packages
         run: pip install alpaca-py yfinance pandas numpy
       - name: "Verify Assets"
-        env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-          ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m trading.run_alpaca --mode verify
 
   # ═══════════════════════════════════════════════════════
@@ -97,13 +99,12 @@ jobs:
       - name: Install packages
         run: pip install alpaca-py yfinance pandas numpy
       - name: "Leveraged ETF Entry"
-        env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-          ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_alpaca --mode entry --session leveraged
+        run: |
+          DRYRUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRYRUN_FLAG="--dry-run"
+          fi
+          python -m trading.run_alpaca --mode entry --session leveraged $DRYRUN_FLAG
 
   # ═══════════════════════════════════════════════════════
   #  REGULAR STOCK ENTRIES (every 2 hours)
@@ -127,13 +128,12 @@ jobs:
       - name: Install packages
         run: pip install alpaca-py yfinance pandas numpy
       - name: "Regular Stocks Entry"
-        env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-          ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_alpaca --mode entry --session stocks
+        run: |
+          DRYRUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRYRUN_FLAG="--dry-run"
+          fi
+          python -m trading.run_alpaca --mode entry --session stocks $DRYRUN_FLAG
 
   # ═══════════════════════════════════════════════════════
   #  MONITOR (hourly during market hours)
@@ -159,13 +159,12 @@ jobs:
       - name: Install packages
         run: pip install alpaca-py yfinance pandas numpy
       - name: "Monitor Positions"
-        env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-          ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m trading.run_alpaca --mode monitor
+        run: |
+          DRYRUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRYRUN_FLAG="--dry-run"
+          fi
+          python -m trading.run_alpaca --mode monitor $DRYRUN_FLAG
 
   # ═══════════════════════════════════════════════════════
   #  EOD SUMMARY
@@ -186,12 +185,6 @@ jobs:
       - name: Install packages
         run: pip install alpaca-py yfinance pandas numpy
       - name: "Monitor + Summary"
-        env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-          ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python -m trading.run_alpaca --mode monitor
           python -m trading.run_alpaca --mode summary
