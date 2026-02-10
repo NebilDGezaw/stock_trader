@@ -74,6 +74,13 @@ SESSIONS = {
         "period": "1mo",
         "stock_mode": False,
     },
+    "asian_crypto": {
+        "label": "🌏 Asian Session — Crypto",
+        "tickers": ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD"],
+        "interval": "1h",
+        "period": "1mo",
+        "stock_mode": False,
+    },
 }
 
 

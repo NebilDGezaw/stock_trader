@@ -2,12 +2,38 @@ name: HFM Auto-Trader
 
 on:
   schedule:
-    - cron: "0 8 * * 1-5"     # LONDON OPEN entry
-    - cron: "0 10 * * 1-5"    # LONDON monitor
-    - cron: "0 13 * * 1-5"    # OVERLAP entry
-    - cron: "30 14 * * 1-5"   # NY OPEN entry
-    - cron: "0 16 * * 1-5"    # NY monitor
-    - cron: "30 20 * * 1-5"   # EOD summary
+    # ── ENTRY sessions (weekdays) ──
+    - cron: "0 2 * * 1-5"      # ASIAN CRYPTO entry (02:00 UTC)
+    - cron: "0 8 * * 1-5"      # LONDON OPEN entry
+    - cron: "0 13 * * 1-5"     # OVERLAP entry
+    - cron: "30 14 * * 1-5"    # NY OPEN entry
+
+    # ── ENTRY sessions (weekends — crypto only) ──
+    - cron: "0 2 * * 0,6"      # ASIAN CRYPTO entry (Sat/Sun)
+    - cron: "0 10 * * 0,6"     # MID-DAY CRYPTO entry (Sat/Sun)
+    - cron: "0 18 * * 0,6"     # EVENING CRYPTO entry (Sat/Sun)
+
+    # ── MONITOR (weekdays — hourly during active hours) ──
+    - cron: "0 9 * * 1-5"      # monitor after London entry
+    - cron: "0 10 * * 1-5"     # monitor
+    - cron: "0 11 * * 1-5"     # monitor
+    - cron: "0 12 * * 1-5"     # monitor
+    - cron: "0 14 * * 1-5"     # monitor before NY
+    - cron: "0 15 * * 1-5"     # monitor
+    - cron: "0 16 * * 1-5"     # monitor
+    - cron: "0 17 * * 1-5"     # monitor
+    - cron: "0 18 * * 1-5"     # monitor
+    - cron: "0 19 * * 1-5"     # monitor
+    - cron: "0 20 * * 1-5"     # monitor (late NY)
+
+    # ── MONITOR (weekends — crypto positions) ──
+    - cron: "0 6 * * 0,6"      # weekend monitor
+    - cron: "0 14 * * 0,6"     # weekend monitor
+    - cron: "0 22 * * 0,6"     # weekend monitor
+
+    # ── EOD SUMMARY ──
+    - cron: "30 20 * * 1-5"    # weekday EOD summary
+    - cron: "30 22 * * 0"      # Sunday EOD summary
 
   workflow_dispatch:
     inputs:
@@ -22,7 +48,7 @@ on:
         required: false
         default: "london"
         type: choice
-        options: [london, ny, overlap]
+        options: [london, ny, overlap, asian_crypto]
       dry_run:
         description: "Dry run (no real orders)"
         required: false
@@ -30,6 +56,9 @@ on:
         type: boolean
 
 # NOTE: HFM_MT5_SERVER secret must be IP:port (e.g. 18.134.38.113:1950)
+
+# ── Reusable steps anchor ──────────────────────────────
+# (GitHub Actions doesn't support YAML anchors, so we repeat)
 
 jobs:
   # ═══════════════════════════════════════════════════════
@@ -63,7 +92,6 @@ jobs:
           Account=0
           Profile=0
           "@ | Set-Content "$cfgDir\common.ini" -Encoding ASCII
-          Write-Host "AutoTrading enabled in common.ini"
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
       - name: "Verify Symbols"
@@ -76,6 +104,9 @@ jobs:
         run: python -m trading.run_trading --mode verify --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
+  #  ENTRY JOBS
+  # ═══════════════════════════════════════════════════════
+
   london-entry:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -119,7 +150,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode entry --session london --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
-  # ═══════════════════════════════════════════════════════
   overlap-entry:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -163,7 +193,6 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode entry --session overlap --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
-  # ═══════════════════════════════════════════════════════
   ny-entry:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -207,13 +236,75 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode entry --session ny --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
+  # ── Crypto entries: Asian session + weekends ──────────
+  asian-crypto-entry:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    if: >-
+      github.event.schedule == '0 2 * * 1-5' ||
+      github.event.schedule == '0 2 * * 0,6' ||
+      github.event.schedule == '0 10 * * 0,6' ||
+      github.event.schedule == '0 18 * * 0,6' ||
+      (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'asian_crypto')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - uses: actions/cache@v4
+        id: cache-mt5
+        with:
+          path: 'C:\Program Files\MetaTrader 5'
+          key: ${{ runner.os }}-mt5-choco-v2
+      - name: Install MT5
+        if: steps.cache-mt5.outputs.cache-hit != 'true'
+        run: choco install metatrader5 --pre -y
+      - name: Enable AutoTrading
+        shell: pwsh
+        run: |
+          $cfgDir = "C:\Program Files\MetaTrader 5\config"
+          New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+          @"
+          [Experts]
+          AllowLiveTrading=1
+          Enabled=1
+          Account=0
+          Profile=0
+          "@ | Set-Content "$cfgDir\common.ini" -Encoding ASCII
+      - name: Install packages
+        run: pip install MetaTrader5 yfinance pandas numpy
+      - name: "Asian Crypto Entry"
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
+        run: python -m trading.run_trading --mode entry --session asian_crypto --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
+
   # ═══════════════════════════════════════════════════════
+  #  MONITOR (hourly during active hours + weekends)
+  # ═══════════════════════════════════════════════════════
+
   monitor:
     runs-on: windows-latest
     timeout-minutes: 20
     if: >-
+      github.event.schedule == '0 9 * * 1-5' ||
       github.event.schedule == '0 10 * * 1-5' ||
+      github.event.schedule == '0 11 * * 1-5' ||
+      github.event.schedule == '0 12 * * 1-5' ||
+      github.event.schedule == '0 14 * * 1-5' ||
+      github.event.schedule == '0 15 * * 1-5' ||
       github.event.schedule == '0 16 * * 1-5' ||
+      github.event.schedule == '0 17 * * 1-5' ||
+      github.event.schedule == '0 18 * * 1-5' ||
+      github.event.schedule == '0 19 * * 1-5' ||
+      github.event.schedule == '0 20 * * 1-5' ||
+      github.event.schedule == '0 6 * * 0,6' ||
+      github.event.schedule == '0 14 * * 0,6' ||
+      github.event.schedule == '0 22 * * 0,6' ||
       github.event.inputs.mode == 'monitor'
     steps:
       - uses: actions/checkout@v4
@@ -253,11 +344,15 @@ jobs:
         run: python -m trading.run_trading --mode monitor --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
+  #  EOD SUMMARY
+  # ═══════════════════════════════════════════════════════
+
   eod-summary:
     runs-on: windows-latest
     timeout-minutes: 20
     if: >-
       github.event.schedule == '30 20 * * 1-5' ||
+      github.event.schedule == '30 22 * * 0' ||
       github.event.inputs.mode == 'summary'
     steps:
       - uses: actions/checkout@v4
