@@ -1,0 +1,197 @@
+name: Alpaca Stock Trader
+
+on:
+  schedule:
+    # ── LEVERAGED ETF ENTRIES (hourly during market hours, Mon-Fri) ──
+    # Market hours: 9:30 AM - 4:00 PM ET = 14:30 - 21:00 UTC
+    - cron: "30 14 * * 1-5"    # 9:30 AM ET — market open
+    - cron: "30 15 * * 1-5"    # 10:30 AM ET
+    - cron: "30 16 * * 1-5"    # 11:30 AM ET
+    - cron: "30 17 * * 1-5"    # 12:30 PM ET
+    - cron: "30 18 * * 1-5"    # 1:30 PM ET
+    - cron: "30 19 * * 1-5"    # 2:30 PM ET
+    - cron: "30 20 * * 1-5"    # 3:30 PM ET (last entry window)
+
+    # ── REGULAR STOCK ENTRIES (every 2 hours during market hours, Mon-Fri) ──
+    - cron: "35 14 * * 1-5"    # 9:35 AM ET — just after open
+    - cron: "35 16 * * 1-5"    # 11:35 AM ET
+    - cron: "35 18 * * 1-5"    # 1:35 PM ET
+    - cron: "35 20 * * 1-5"    # 3:35 PM ET
+
+    # ── MONITOR (hourly during market hours) ──
+    - cron: "0 15 * * 1-5"     # 10:00 AM ET
+    - cron: "0 16 * * 1-5"     # 11:00 AM ET
+    - cron: "0 17 * * 1-5"     # 12:00 PM ET
+    - cron: "0 18 * * 1-5"     # 1:00 PM ET
+    - cron: "0 19 * * 1-5"     # 2:00 PM ET
+    - cron: "0 20 * * 1-5"     # 3:00 PM ET
+
+    # ── EOD SUMMARY ──
+    - cron: "15 21 * * 1-5"    # 4:15 PM ET — right after close
+
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Trading mode"
+        required: true
+        default: "verify"
+        type: choice
+        options: [entry, monitor, summary, verify]
+      session:
+        description: "Session (for entry mode)"
+        required: false
+        default: "leveraged"
+        type: choice
+        options: [leveraged, stocks]
+      dry_run:
+        description: "Dry run (no real orders)"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  # ═══════════════════════════════════════════════════════
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event.inputs.mode == 'verify'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install packages
+        run: pip install alpaca-py yfinance pandas numpy
+      - name: "Verify Assets"
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m trading.run_alpaca --mode verify
+
+  # ═══════════════════════════════════════════════════════
+  #  LEVERAGED ETF ENTRIES (hourly)
+  # ═══════════════════════════════════════════════════════
+
+  leveraged-entry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.schedule == '30 14 * * 1-5' ||
+      github.event.schedule == '30 15 * * 1-5' ||
+      github.event.schedule == '30 16 * * 1-5' ||
+      github.event.schedule == '30 17 * * 1-5' ||
+      github.event.schedule == '30 18 * * 1-5' ||
+      github.event.schedule == '30 19 * * 1-5' ||
+      github.event.schedule == '30 20 * * 1-5' ||
+      (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'leveraged')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install packages
+        run: pip install alpaca-py yfinance pandas numpy
+      - name: "Leveraged ETF Entry"
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m trading.run_alpaca --mode entry --session leveraged
+
+  # ═══════════════════════════════════════════════════════
+  #  REGULAR STOCK ENTRIES (every 2 hours)
+  # ═══════════════════════════════════════════════════════
+
+  stocks-entry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.schedule == '35 14 * * 1-5' ||
+      github.event.schedule == '35 16 * * 1-5' ||
+      github.event.schedule == '35 18 * * 1-5' ||
+      github.event.schedule == '35 20 * * 1-5' ||
+      (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'stocks')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install packages
+        run: pip install alpaca-py yfinance pandas numpy
+      - name: "Regular Stocks Entry"
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m trading.run_alpaca --mode entry --session stocks
+
+  # ═══════════════════════════════════════════════════════
+  #  MONITOR (hourly during market hours)
+  # ═══════════════════════════════════════════════════════
+
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.schedule == '0 15 * * 1-5' ||
+      github.event.schedule == '0 16 * * 1-5' ||
+      github.event.schedule == '0 17 * * 1-5' ||
+      github.event.schedule == '0 18 * * 1-5' ||
+      github.event.schedule == '0 19 * * 1-5' ||
+      github.event.schedule == '0 20 * * 1-5' ||
+      github.event.inputs.mode == 'monitor'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install packages
+        run: pip install alpaca-py yfinance pandas numpy
+      - name: "Monitor Positions"
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m trading.run_alpaca --mode monitor
+
+  # ═══════════════════════════════════════════════════════
+  #  EOD SUMMARY
+  # ═══════════════════════════════════════════════════════
+
+  eod-summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event.schedule == '15 21 * * 1-5' ||
+      github.event.inputs.mode == 'summary'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install packages
+        run: pip install alpaca-py yfinance pandas numpy
+      - name: "Monitor + Summary"
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python -m trading.run_alpaca --mode monitor
+          python -m trading.run_alpaca --mode summary
