@@ -161,9 +161,10 @@ def mode_entry(client: MT5Client, session_name: str, dry_run: bool):
     executor = TradeExecutor(client, ExecutorConfig(
         max_concurrent_positions=config.MAX_OPEN_POSITIONS,
         max_positions_per_class=config.MAX_POSITIONS_PER_CLASS,
+        max_daily_loss_pct=getattr(config, "MAX_DAILY_LOSS_PCT", 3.0),
         default_risk_pct=config.RISK_PER_TRADE,
         min_risk_reward=config.RISK_REWARD_MIN,
-        max_risk_per_trade=0.0,   # demo: no cap. For live, set to e.g. $1
+        max_risk_per_trade=0.0,   # lot caps in calculate_lot_size handle this
         dry_run=dry_run,
     ))
 

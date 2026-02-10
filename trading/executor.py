@@ -73,6 +73,28 @@ class ExecutionRecord:
 #  Lot Size Calculator
 # ──────────────────────────────────────────────────────────
 
+# ── Per-asset lot size caps ───────────────────────────────
+# These prevent catastrophic exposure even when SL is tight.
+# Values are conservative for a $100K account.
+MAX_LOT_BY_ASSET = {
+    "forex": 2.0,       # max 2 standard lots ($200K notional) per trade
+    "metal": 0.20,      # max 0.20 lots gold (~20 oz ≈ $100K notional)
+    "commodity": 0.50,  # max 0.50 lots energy/commodity
+    "crypto": 0.50,     # max 0.50 lots crypto
+    "stock": 1.0,       # fallback
+}
+
+# ── Minimum SL distances (reject trades with impossibly tight stops) ──
+# Prevents lot size explosion from sub-pip SL distances.
+MIN_SL_DISTANCE = {
+    "forex": 0.0010,    # at least 10 pips for forex
+    "metal": 5.0,       # at least $5 for gold
+    "commodity": 0.50,  # at least $0.50 for silver/energy
+    "crypto": 50.0,     # at least $50 for BTC, $0.50 for alts (checked dynamically)
+    "stock": 0.10,      # fallback
+}
+
+
 def calculate_lot_size(
     equity: float,
     risk_pct: float,
@@ -87,13 +109,29 @@ def calculate_lot_size(
 
     Formula: lot_size = (equity × risk%) / (SL distance in price × contract size)
 
-    The risk amount is capped by max_risk_amount (default $1) to limit exposure.
+    Safety layers:
+        1. risk_amount capped by max_risk_amount (if > 0)
+        2. Minimum SL distance enforced per asset type
+        3. Hard lot size cap per asset type (prevents 10x+ leverage blowups)
+        4. Broker volume min/max/step constraints
 
     Returns the lot size rounded to the broker's volume step.
     """
     sl_distance = abs(entry_price - stop_loss)
     if sl_distance == 0:
         logger.warning("SL distance is 0 — cannot size position")
+        return 0.0
+
+    # ── Safety: minimum SL distance ──────────────────────
+    min_sl = MIN_SL_DISTANCE.get(asset_type, 0.0)
+    # For crypto alts (price < $100), relax the minimum
+    if asset_type == "crypto" and entry_price < 100:
+        min_sl = entry_price * 0.01  # at least 1% of price
+    if sl_distance < min_sl:
+        logger.warning(
+            f"SL distance {sl_distance:.5f} is below minimum {min_sl:.5f} "
+            f"for {asset_type} — rejecting trade (too tight)"
+        )
         return 0.0
 
     risk_amount = equity * risk_pct
@@ -108,6 +146,15 @@ def calculate_lot_size(
 
     lot_size = risk_amount / (sl_distance * contract_size)
 
+    # ── Safety: hard lot size cap per asset type ─────────
+    max_lot = MAX_LOT_BY_ASSET.get(asset_type, 2.0)
+    if lot_size > max_lot:
+        logger.warning(
+            f"Lot size {lot_size:.2f} exceeds max {max_lot:.2f} for {asset_type} "
+            f"— capping to {max_lot:.2f}"
+        )
+        lot_size = max_lot
+
     # Clamp to broker limits
     vol_min = symbol_info.get("volume_min", 0.01)
     vol_max = symbol_info.get("volume_max", 100.0)
@@ -119,10 +166,12 @@ def calculate_lot_size(
     # Final precision fix
     lot_size = round(lot_size, 2)
 
+    # ── Log with notional exposure for visibility ────────
+    notional = lot_size * contract_size * (entry_price if asset_type != "forex" else 1.0)
     logger.info(
         f"Lot sizing: equity={equity:.2f}, risk={risk_pct*100:.1f}%, "
         f"SL_dist={sl_distance:.5f}, contract={contract_size}, "
-        f"lot={lot_size}"
+        f"lot={lot_size}, notional≈${notional:,.0f}"
     )
     return lot_size
 
@@ -241,15 +290,19 @@ class TradeExecutor:
             )
 
         # ── Safety Check 4: No duplicate symbol ──────────
-        existing_symbols = {p.symbol for p in open_positions}
-        if mt5_sym in existing_symbols:
-            return ExecutionRecord(
-                ticker=ticker, mt5_symbol=mt5_sym, action=action,
-                volume=0, entry_price=setup.entry_price,
-                sl=setup.stop_loss, tp=setup.take_profit,
-                risk_reward=setup.risk_reward, executed=False,
-                reason=f"Already have open position on {mt5_sym}",
-            )
+        # Prevent stacking (e.g., BUY EURUSD in London + BUY EURUSD in Overlap)
+        is_buy = setup.action in (TradeAction.BUY, TradeAction.STRONG_BUY)
+        for p in open_positions:
+            if p.symbol == mt5_sym:
+                pos_is_buy = (p.type == "BUY")
+                if pos_is_buy == is_buy:
+                    return ExecutionRecord(
+                        ticker=ticker, mt5_symbol=mt5_sym, action=action,
+                        volume=0, entry_price=setup.entry_price,
+                        sl=setup.stop_loss, tp=setup.take_profit,
+                        risk_reward=setup.risk_reward, executed=False,
+                        reason=f"Already have same-direction position on {mt5_sym}",
+                    )
 
         # ── Safety Check 5: Daily loss limit ─────────────
         acct = self.client.get_account_info()

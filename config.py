@@ -104,18 +104,19 @@ KILL_ZONES = {
 # ──────────────────────────────────────────────
 #  Risk Management
 # ──────────────────────────────────────────────
-RISK_PER_TRADE = 0.02           # 2% of capital per trade
+RISK_PER_TRADE = 0.01           # 1% of capital per trade (was 2% — caused $24K loss)
 RISK_REWARD_MIN = 2.0           # minimum R:R to take a trade
 INITIAL_CAPITAL = 100_000       # starting capital ($)
 MAX_OPEN_POSITIONS = 9          # absolute maximum concurrent positions (fallback)
+MAX_DAILY_LOSS_PCT = 3.0        # halt trading after 3% daily drawdown (was 5%)
 
 # ── Per-asset-class position limits ──────────
-# Diversify: max 3 per category, so one class can't hog all the slots
+# Diversify: max 2 per category to limit correlated exposure
 MAX_POSITIONS_PER_CLASS = {
-    "forex": 3,
-    "crypto": 3,
-    "commodity": 3,     # metals + energy
-    "stock": 3,         # if we ever add stocks
+    "forex": 2,          # was 3 — correlated pairs compound losses
+    "crypto": 2,         # was 3
+    "commodity": 2,      # was 3 — metals + energy
+    "stock": 3,          # keep 3 for Alpaca stocks
 }
 
 # ──────────────────────────────────────────────
@@ -268,7 +269,7 @@ CRYPTO_MODE = {
         "sell": 3,
         "strong_sell": 5,
     },
-    "risk_per_trade": 0.02,
+    "risk_per_trade": 0.01,         # was 0.02 — reduced to prevent over-leverage
 }
 
 CRYPTO_TICKERS = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD", "DOGE-USD", "ADA-USD"]
@@ -294,5 +295,5 @@ FOREX_MODE = {
         "sell": 4,
         "strong_sell": 6,
     },
-    "risk_per_trade": 0.02,
+    "risk_per_trade": 0.01,         # was 0.02 — reduced to prevent over-leverage
 }
