@@ -297,11 +297,17 @@ class AlpacaExecutor:
                 reason="Calculated share count is 0 (SL too tight or equity too low)",
             )
 
-        # Check we have enough buying power
-        approx_cost = qty * setup.entry_price
+        # Check we have enough buying power (with 2% buffer for price movement)
+        buffer = 1.02  # 2% safety margin for market price > strategy price
+        approx_cost = qty * setup.entry_price * buffer
         if approx_cost > acct.buying_power:
-            # Reduce qty to fit buying power
-            qty = int(acct.buying_power / setup.entry_price)
+            # Reduce qty to fit buying power (with buffer)
+            qty = int(acct.buying_power / (setup.entry_price * buffer))
+            logger.info(
+                f"Reduced {ticker} qty to {qty} to fit buying power "
+                f"(${acct.buying_power:,.2f} available, "
+                f"~${qty * setup.entry_price:,.2f} needed)"
+            )
             if qty <= 0:
                 return ExecutionRecord(
                     ticker=ticker, action=action, qty=0,
