@@ -183,6 +183,30 @@ class AlpacaPositionManager:
         ticker = pos.symbol
         is_long = pos.side == "long"
 
+        # ── Halal compliance: close any short positions immediately ──
+        if not is_long:
+            logger.info(
+                f"SHORT position detected on {ticker} — closing for halal compliance. "
+                f"PnL: ${pos.unrealized_pl:+.2f}"
+            )
+            if not self.dry_run:
+                result = self.client.close_position(ticker)
+                if result.success:
+                    return PositionUpdate(
+                        symbol=ticker,
+                        action_taken="full_close",
+                        pnl=pos.unrealized_pl,
+                        reason=f"Short position closed (halal compliance)",
+                    )
+                else:
+                    logger.error(f"Failed to close short {ticker}: {result.message}")
+            return PositionUpdate(
+                symbol=ticker,
+                action_taken="full_close",
+                pnl=pos.unrealized_pl,
+                reason=f"[DRY RUN] Short position closed (halal compliance)",
+            )
+
         # We need to find the current SL from the open stop-loss order
         sl_price = self._find_stop_loss_price(ticker)
 

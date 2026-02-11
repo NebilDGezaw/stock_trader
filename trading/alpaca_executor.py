@@ -256,7 +256,8 @@ class AlpacaExecutor:
         is_leveraged = ticker.upper() in LEVERAGED_TICKERS
         category = _get_category(ticker)
 
-        # ── Safety Check 1: Only actionable signals ───────
+        # ── Safety Check 1: Only BUY signals (no short selling) ─
+        #    Short selling is not halal — we only buy what we own.
         if setup.action in (TradeAction.HOLD,):
             return ExecutionRecord(
                 ticker=ticker, action=action, qty=0,
@@ -264,6 +265,15 @@ class AlpacaExecutor:
                 sl=setup.stop_loss, tp=setup.take_profit,
                 risk_reward=setup.risk_reward, executed=False,
                 reason="HOLD signal — no trade",
+            )
+
+        if setup.action in (TradeAction.SELL, TradeAction.STRONG_SELL):
+            return ExecutionRecord(
+                ticker=ticker, action=action, qty=0,
+                entry_price=setup.entry_price,
+                sl=setup.stop_loss, tp=setup.take_profit,
+                risk_reward=setup.risk_reward, executed=False,
+                reason="SELL signal skipped — no short selling (halal compliance)",
             )
 
         # ── Safety Check 2: Minimum R:R ──────────────────
@@ -378,17 +388,6 @@ class AlpacaExecutor:
                 reason=f"Asset {ticker} is not tradeable on Alpaca",
             )
 
-        # ── Safety Check 9: Can't short non-shortable assets ─
-        is_sell = setup.action in (TradeAction.SELL, TradeAction.STRONG_SELL)
-        if is_sell and not asset.get("shortable", False):
-            return ExecutionRecord(
-                ticker=ticker, action=action, qty=0,
-                entry_price=setup.entry_price,
-                sl=setup.stop_loss, tp=setup.take_profit,
-                risk_reward=setup.risk_reward, executed=False,
-                reason=f"{ticker} cannot be sold short on Alpaca",
-            )
-
         # ── Calculate share size ─────────────────────────
         risk_pct = (
             self.cfg.leveraged_risk_pct if is_leveraged
@@ -471,9 +470,8 @@ class AlpacaExecutor:
                 reason="DRY RUN — order not placed",
             )
 
-        # ── Place bracket order ──────────────────────────
-        is_buy = setup.action in (TradeAction.BUY, TradeAction.STRONG_BUY)
-        order_action = "BUY" if is_buy else "SELL"
+        # ── Place bracket order (BUY only — no short selling) ─
+        order_action = "BUY"
         client_id = f"bot_{ticker}_{setup.composite_score}_{datetime.utcnow().strftime('%H%M%S')}"
 
         result: OrderResult = self.client.place_bracket_order(

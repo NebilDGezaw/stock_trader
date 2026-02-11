@@ -265,7 +265,7 @@ class AlpacaClient:
                 symbol=symbol,
                 qty=qty,
                 side=side,
-                time_in_force=TimeInForce.DAY,
+                time_in_force=TimeInForce.GTC,   # Good Till Cancelled — SL/TP persist overnight
                 order_class=OrderClass.BRACKET,
                 take_profit=TakeProfitRequest(limit_price=round(tp, 2)),
                 stop_loss=StopLossRequest(stop_price=round(sl, 2)),
