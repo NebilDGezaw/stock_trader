@@ -348,9 +348,18 @@ class AlpacaClient:
             positions = self._client.get_all_positions()
             result = []
             for p in positions:
+                # Normalize side to "long" or "short" (API returns PositionSide enum)
+                side_raw = str(p.side).lower()
+                if "long" in side_raw:
+                    side = "long"
+                elif "short" in side_raw:
+                    side = "short"
+                else:
+                    side = side_raw
+
                 result.append(PositionInfo(
                     symbol=p.symbol,
-                    side=str(p.side),
+                    side=side,
                     qty=float(p.qty),
                     avg_entry_price=float(p.avg_entry_price),
                     current_price=float(p.current_price),
@@ -368,9 +377,17 @@ class AlpacaClient:
         self._ensure_connected()
         try:
             p = self._client.get_open_position(symbol)
+            side_raw = str(p.side).lower()
+            if "long" in side_raw:
+                side = "long"
+            elif "short" in side_raw:
+                side = "short"
+            else:
+                side = side_raw
+
             return PositionInfo(
                 symbol=p.symbol,
-                side=str(p.side),
+                side=side,
                 qty=float(p.qty),
                 avg_entry_price=float(p.avg_entry_price),
                 current_price=float(p.current_price),
