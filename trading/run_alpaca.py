@@ -9,12 +9,17 @@ Modes:
     --mode verify    : Verify asset availability on Alpaca
 
 Sessions:
-    --session leveraged : Leveraged ETFs (MSTU, MSTR, MSTZ, TSLL)
-    --session stocks    : Regular stocks (large cap, tech, indices)
+    --session leveraged     : Leveraged ETFs (MSTU, MSTR, MSTZ, TSLL, TQQQ, SOXL, FNGU)
+    --session tech          : Mega Tech (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, AMD)
+    --session semis         : Semiconductors (AVGO, QCOM, ASML, MU)
+    --session healthcare    : Healthcare (UNH, ABBV, LLY, ISRG)
+    --session clean_energy  : Clean Energy & EV (ENPH, FSLR, RIVN, NIO)
+    --session consumer      : Consumer (COST, TGT)
+    --session stocks        : All non-leveraged stocks combined
 
 Usage:
     python -m trading.run_alpaca --mode entry --session leveraged
-    python -m trading.run_alpaca --mode entry --session stocks
+    python -m trading.run_alpaca --mode entry --session tech
     python -m trading.run_alpaca --mode monitor
     python -m trading.run_alpaca --mode summary
     python -m trading.run_alpaca --mode verify
@@ -40,7 +45,7 @@ from models.signals import TradeAction, MarketBias
 from trading.alpaca_client import AlpacaClient
 from trading.alpaca_executor import (
     AlpacaExecutor, AlpacaExecutorConfig, ExecutionRecord,
-    LEVERAGED_TICKERS,
+    LEVERAGED_TICKERS, TICKER_CATEGORY, CATEGORY_CAPS, TICKER_CAPS,
 )
 from trading.alpaca_position_manager import AlpacaPositionManager, PositionUpdate
 
@@ -56,23 +61,69 @@ logger = logging.getLogger("trading.alpaca_runner")
 # ──────────────────────────────────────────────────────────
 
 SESSIONS = {
+    # ── Leveraged ETFs (hourly scan, 30% portfolio cap) ──
     "leveraged": {
         "label": "⚡ Leveraged ETFs",
-        "tickers": ["MSTU", "MSTR", "MSTZ", "TSLL"],
+        "tickers": ["MSTU", "MSTR", "MSTZ", "TSLL", "TQQQ", "SOXL", "FNGU"],
         "interval": "1h",
         "period": "3mo",
         "stock_mode": True,
     },
-    "stocks": {
-        "label": "📈 Regular Stocks",
-        "tickers": [
-            "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA",
-            "META", "TSLA", "AMD",
-        ],
+    # ── Mega Tech (2h scan, 25% cap) ──
+    "tech": {
+        "label": "💻 Mega Tech",
+        "tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD"],
         "interval": "1d",
         "period": "6mo",
         "stock_mode": True,
     },
+    # ── Semiconductors (2h scan, 15% cap) ──
+    "semis": {
+        "label": "🔬 Semiconductors",
+        "tickers": ["AVGO", "QCOM", "ASML", "MU"],
+        "interval": "1d",
+        "period": "6mo",
+        "stock_mode": True,
+    },
+    # ── Healthcare (2h scan, 15% cap) ──
+    "healthcare": {
+        "label": "🏥 Healthcare",
+        "tickers": ["UNH", "ABBV", "LLY", "ISRG"],
+        "interval": "1d",
+        "period": "6mo",
+        "stock_mode": True,
+    },
+    # ── Clean Energy / EV (2h scan, 10% cap) ──
+    "clean_energy": {
+        "label": "🌿 Clean Energy & EV",
+        "tickers": ["ENPH", "FSLR", "RIVN", "NIO"],
+        "interval": "1d",
+        "period": "6mo",
+        "stock_mode": True,
+    },
+    # ── Consumer Staples (2h scan, 5% cap) ──
+    "consumer": {
+        "label": "🛒 Consumer",
+        "tickers": ["COST", "TGT"],
+        "interval": "1d",
+        "period": "6mo",
+        "stock_mode": True,
+    },
+}
+
+# Legacy alias so existing --session stocks still works
+SESSIONS["stocks"] = {
+    "label": "📈 All Regular Stocks",
+    "tickers": (
+        SESSIONS["tech"]["tickers"]
+        + SESSIONS["semis"]["tickers"]
+        + SESSIONS["healthcare"]["tickers"]
+        + SESSIONS["clean_energy"]["tickers"]
+        + SESSIONS["consumer"]["tickers"]
+    ),
+    "interval": "1d",
+    "period": "6mo",
+    "stock_mode": True,
 }
 
 
@@ -153,11 +204,10 @@ def mode_entry(client: AlpacaClient, session_name: str, dry_run: bool):
     logger.info(f"Tickers: {', '.join(session['tickers'])}")
 
     executor = AlpacaExecutor(client, AlpacaExecutorConfig(
-        max_concurrent_positions=6,
-        max_leveraged_positions=3,
-        max_regular_positions=3,
+        max_concurrent_positions=10,
+        max_daily_loss_pct=config.MAX_DAILY_LOSS_PCT,
         default_risk_pct=config.RISK_PER_TRADE,
-        leveraged_risk_pct=config.LEVERAGED_MODE.get("risk_per_trade", 0.03),
+        leveraged_risk_pct=config.LEVERAGED_MODE.get("risk_per_trade", 0.02),
         min_risk_reward=config.RISK_REWARD_MIN,
         dry_run=dry_run,
     ))
@@ -451,7 +501,7 @@ def main():
     parser.add_argument(
         "--session", default="leveraged",
         choices=list(SESSIONS.keys()),
-        help="Trading session (for entry mode)",
+        help="Trading session (for entry mode): leveraged, tech, semis, healthcare, clean_energy, consumer, stocks (all)",
     )
     parser.add_argument(
         "--dry-run", action="store_true",

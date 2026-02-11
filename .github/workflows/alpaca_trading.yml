@@ -12,11 +12,16 @@ on:
     - cron: "30 19 * * 1-5"    # 2:30 PM ET
     - cron: "30 20 * * 1-5"    # 3:30 PM ET (last entry window)
 
-    # ── REGULAR STOCK ENTRIES (every 2 hours during market hours, Mon-Fri) ──
-    - cron: "35 14 * * 1-5"    # 9:35 AM ET — just after open
-    - cron: "35 16 * * 1-5"    # 11:35 AM ET
-    - cron: "35 18 * * 1-5"    # 1:35 PM ET
-    - cron: "35 20 * * 1-5"    # 3:35 PM ET
+    # ── REGULAR STOCK ENTRIES by category (every 2h, staggered) ──
+    - cron: "35 14 * * 1-5"    # 9:35 AM ET — tech + semis
+    - cron: "35 16 * * 1-5"    # 11:35 AM ET — tech + semis
+    - cron: "35 18 * * 1-5"    # 1:35 PM ET — tech + semis
+    - cron: "35 20 * * 1-5"    # 3:35 PM ET — tech + semis
+
+    - cron: "40 14 * * 1-5"    # 9:40 AM ET — healthcare + clean_energy + consumer
+    - cron: "40 16 * * 1-5"    # 11:40 AM ET
+    - cron: "40 18 * * 1-5"    # 1:40 PM ET
+    - cron: "40 20 * * 1-5"    # 3:40 PM ET
 
     # ── MONITOR (hourly during market hours) ──
     - cron: "0 15 * * 1-5"     # 10:00 AM ET
@@ -42,7 +47,7 @@ on:
         required: false
         default: "leveraged"
         type: choice
-        options: [leveraged, stocks]
+        options: [leveraged, tech, semis, healthcare, clean_energy, consumer, stocks]
       dry_run:
         description: "Dry run (no real orders)"
         required: false
@@ -107,18 +112,18 @@ jobs:
           python -m trading.run_alpaca --mode entry --session leveraged $DRYRUN_FLAG
 
   # ═══════════════════════════════════════════════════════
-  #  REGULAR STOCK ENTRIES (every 2 hours)
+  #  TECH + SEMIS ENTRIES (every 2 hours)
   # ═══════════════════════════════════════════════════════
 
-  stocks-entry:
+  tech-semis-entry:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     if: >-
       github.event.schedule == '35 14 * * 1-5' ||
       github.event.schedule == '35 16 * * 1-5' ||
       github.event.schedule == '35 18 * * 1-5' ||
       github.event.schedule == '35 20 * * 1-5' ||
-      (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'stocks')
+      (github.event.inputs.mode == 'entry' && (github.event.inputs.session == 'tech' || github.event.inputs.session == 'semis' || github.event.inputs.session == 'stocks'))
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -127,13 +132,63 @@ jobs:
           cache: "pip"
       - name: Install packages
         run: pip install alpaca-py yfinance pandas numpy
-      - name: "Regular Stocks Entry"
+      - name: "Tech Entry"
         run: |
           DRYRUN_FLAG=""
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
             DRYRUN_FLAG="--dry-run"
           fi
-          python -m trading.run_alpaca --mode entry --session stocks $DRYRUN_FLAG
+          python -m trading.run_alpaca --mode entry --session tech $DRYRUN_FLAG
+      - name: "Semis Entry"
+        run: |
+          DRYRUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRYRUN_FLAG="--dry-run"
+          fi
+          python -m trading.run_alpaca --mode entry --session semis $DRYRUN_FLAG
+
+  # ═══════════════════════════════════════════════════════
+  #  HEALTHCARE + CLEAN ENERGY + CONSUMER (every 2 hours)
+  # ═══════════════════════════════════════════════════════
+
+  other-sectors-entry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event.schedule == '40 14 * * 1-5' ||
+      github.event.schedule == '40 16 * * 1-5' ||
+      github.event.schedule == '40 18 * * 1-5' ||
+      github.event.schedule == '40 20 * * 1-5' ||
+      (github.event.inputs.mode == 'entry' && (github.event.inputs.session == 'healthcare' || github.event.inputs.session == 'clean_energy' || github.event.inputs.session == 'consumer' || github.event.inputs.session == 'stocks'))
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install packages
+        run: pip install alpaca-py yfinance pandas numpy
+      - name: "Healthcare Entry"
+        run: |
+          DRYRUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRYRUN_FLAG="--dry-run"
+          fi
+          python -m trading.run_alpaca --mode entry --session healthcare $DRYRUN_FLAG
+      - name: "Clean Energy Entry"
+        run: |
+          DRYRUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRYRUN_FLAG="--dry-run"
+          fi
+          python -m trading.run_alpaca --mode entry --session clean_energy $DRYRUN_FLAG
+      - name: "Consumer Entry"
+        run: |
+          DRYRUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRYRUN_FLAG="--dry-run"
+          fi
+          python -m trading.run_alpaca --mode entry --session consumer $DRYRUN_FLAG
 
   # ═══════════════════════════════════════════════════════
   #  MONITOR (hourly during market hours)

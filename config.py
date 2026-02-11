@@ -234,7 +234,7 @@ LEVERAGED_MODE = {
     "risk_per_trade": 0.03,         # 3% per trade (was 2%)
 }
 
-LEVERAGED_TICKERS = ["MSTU", "MSTR", "MSTZ", "TSLL"]
+LEVERAGED_TICKERS = ["MSTU", "MSTR", "MSTZ", "TSLL", "TQQQ", "SOXL", "FNGU"]
 
 # ──────────────────────────────────────────────
 #  Crypto Momentum Mode
