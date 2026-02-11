@@ -190,12 +190,18 @@ class AlpacaPositionManager:
                 f"PnL: ${pos.unrealized_pl:+.2f}"
             )
             if not self.dry_run:
-                # Cancel any open orders (bracket legs) that lock the shares
-                open_orders = self.client.get_open_orders(ticker)
-                for order in open_orders:
-                    oid = order.get("id", "")
-                    logger.info(f"Cancelling order {oid} on {ticker} to free shares")
-                    self.client.cancel_order(oid)
+                # Cancel ALL open orders on this symbol (bracket legs lock shares)
+                # Keep cancelling until no orders remain
+                import time
+                for attempt in range(3):
+                    open_orders = self.client.get_open_orders(ticker)
+                    if not open_orders:
+                        break
+                    for order in open_orders:
+                        oid = order.get("id", "")
+                        logger.info(f"Cancelling order {oid} on {ticker} (attempt {attempt+1})")
+                        self.client.cancel_order(oid)
+                    time.sleep(1)  # Wait for cancellation to propagate
 
                 # Now close the position
                 result = self.client.close_position(ticker)
