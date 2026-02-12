@@ -45,8 +45,8 @@ class ExecutorConfig:
     def __post_init__(self):
         if self.max_positions_per_class is None:
             self.max_positions_per_class = {
-                "forex": 3,
-                "crypto": 3,
+                "forex": 2,
+                "crypto": 2,
                 "commodity": 2,
                 "stock": 3,
             }

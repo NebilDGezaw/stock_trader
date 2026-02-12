@@ -111,10 +111,11 @@ MAX_OPEN_POSITIONS = 9          # absolute maximum concurrent positions (fallbac
 MAX_DAILY_LOSS_PCT = 4.0        # halt trading after 4% daily drawdown (was 3% — too tight)
 
 # ── Per-asset-class position limits ──────────
-# Diversify across classes; lot caps already prevent oversized positions
+# Keep at 2 for forex/crypto to limit correlated exposure;
+# lot caps protect per-trade but stacking 3 correlated pairs still compounds risk
 MAX_POSITIONS_PER_CLASS = {
-    "forex": 3,          # restored to 3 — lot caps (2.0 max) prevent blowups
-    "crypto": 3,         # restored to 3 — lot caps (0.50 max) limit exposure
+    "forex": 2,          # keep 2 — correlated pairs compound losses even with lot caps
+    "crypto": 2,         # keep 2 — crypto is highly correlated (BTC moves = all move)
     "commodity": 2,      # keep 2 — gold/silver highly correlated
     "stock": 3,          # keep 3 for Alpaca stocks
 }
