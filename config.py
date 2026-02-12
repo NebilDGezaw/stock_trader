@@ -104,18 +104,18 @@ KILL_ZONES = {
 # ──────────────────────────────────────────────
 #  Risk Management
 # ──────────────────────────────────────────────
-RISK_PER_TRADE = 0.01           # 1% of capital per trade (was 2% — caused $24K loss)
-RISK_REWARD_MIN = 2.0           # minimum R:R to take a trade
+RISK_PER_TRADE = 0.015          # 1.5% of capital per trade (was 1% — too conservative)
+RISK_REWARD_MIN = 1.5           # minimum R:R to take a trade (was 2.0 — blocked too many setups)
 INITIAL_CAPITAL = 100_000       # starting capital ($)
 MAX_OPEN_POSITIONS = 9          # absolute maximum concurrent positions (fallback)
-MAX_DAILY_LOSS_PCT = 3.0        # halt trading after 3% daily drawdown (was 5%)
+MAX_DAILY_LOSS_PCT = 4.0        # halt trading after 4% daily drawdown (was 3% — too tight)
 
 # ── Per-asset-class position limits ──────────
-# Diversify: max 2 per category to limit correlated exposure
+# Diversify across classes; lot caps already prevent oversized positions
 MAX_POSITIONS_PER_CLASS = {
-    "forex": 2,          # was 3 — correlated pairs compound losses
-    "crypto": 2,         # was 3
-    "commodity": 2,      # was 3 — metals + energy
+    "forex": 3,          # restored to 3 — lot caps (2.0 max) prevent blowups
+    "crypto": 3,         # restored to 3 — lot caps (0.50 max) limit exposure
+    "commodity": 2,      # keep 2 — gold/silver highly correlated
     "stock": 3,          # keep 3 for Alpaca stocks
 }
 
@@ -129,17 +129,17 @@ FAKEOUT_HOLD_CANDLES = 2               # how many candles must close beyond leve
 FAKEOUT_SWEEP_REVERSAL_BODY = 0.50     # min body ratio for reversal after sweep
 FAKEOUT_PENALTY_NO_DISPLACEMENT = 1    # score deduction if no displacement
 FAKEOUT_PENALTY_NO_VOLUME = 1          # score deduction if low volume
-FAKEOUT_PENALTY_ISOLATED = 1           # deduction for signals without confluence
+FAKEOUT_PENALTY_ISOLATED = 0.5         # softened from 1 — was killing too many valid setups
 
 # ──────────────────────────────────────────────
 #  Signal Scoring
 # ──────────────────────────────────────────────
 SIGNAL_SCORE_THRESHOLDS = {
-    "strong_buy": 7,
-    "buy": 5,
-    "neutral": 3,
-    "sell": 5,
-    "strong_sell": 7,
+    "strong_buy": 6,    # was 7 — lowered to allow more strong signals through
+    "buy": 4,           # was 5 — too many valid setups were stuck as HOLD
+    "neutral": 2,       # was 3
+    "sell": 4,          # was 5
+    "strong_sell": 6,   # was 7
 }
 
 # ──────────────────────────────────────────────
@@ -269,7 +269,7 @@ CRYPTO_MODE = {
         "sell": 3,
         "strong_sell": 5,
     },
-    "risk_per_trade": 0.01,         # was 0.02 — reduced to prevent over-leverage
+    "risk_per_trade": 0.015,        # was 0.01 — lot caps (0.50) prevent over-leverage
 }
 
 CRYPTO_TICKERS = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD", "DOGE-USD", "ADA-USD"]
@@ -289,11 +289,11 @@ FOREX_MODE = {
     "asian_penalty": 1,
     "overlap_bonus": 1,
     "score_thresholds": {
-        "strong_buy": 6,
-        "buy": 4,
+        "strong_buy": 5,    # was 6 — let more strong setups through
+        "buy": 3,           # was 4 — key change: many valid forex setups score 3-4
         "neutral": 2,
-        "sell": 4,
-        "strong_sell": 6,
+        "sell": 3,          # was 4
+        "strong_sell": 5,   # was 6
     },
-    "risk_per_trade": 0.01,         # was 0.02 — reduced to prevent over-leverage
+    "risk_per_trade": 0.015,        # was 0.01 — lot caps already prevent blowups
 }

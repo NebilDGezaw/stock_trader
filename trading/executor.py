@@ -34,11 +34,11 @@ logger = logging.getLogger(__name__)
 class ExecutorConfig:
     """Safety limits and risk parameters."""
     max_concurrent_positions: int = 9     # absolute cap across all classes
-    max_positions_per_class: dict = None  # per-class limits: {"forex": 3, "crypto": 3, ...}
-    max_daily_loss_pct: float = 5.0       # stop trading if daily loss > 5%
-    default_risk_pct: float = 0.02        # 2% of equity per trade
-    min_risk_reward: float = 2.0          # minimum R:R to execute
-    max_risk_per_trade: float = 0.0       # 0 = no hard cap; set to e.g. 1.0 for live
+    max_positions_per_class: dict = None  # per-class limits
+    max_daily_loss_pct: float = 4.0       # stop trading if daily loss > 4%
+    default_risk_pct: float = 0.015       # 1.5% of equity per trade
+    min_risk_reward: float = 1.5          # minimum R:R to execute
+    max_risk_per_trade: float = 0.0       # 0 = no hard cap; lot caps handle this
     min_lot_size: float = 0.01            # minimum lot size (broker floor)
     dry_run: bool = False                 # log only, don't place orders
 
@@ -47,7 +47,7 @@ class ExecutorConfig:
             self.max_positions_per_class = {
                 "forex": 3,
                 "crypto": 3,
-                "commodity": 3,
+                "commodity": 2,
                 "stock": 3,
             }
 

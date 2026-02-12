@@ -130,7 +130,7 @@ def analyze_ticker(ticker: str, period: str = "6mo", interval: str = "1d",
         return None, None
 
 
-MIN_RISK_REWARD = 2.0  # Minimum 1:2 R:R to send an alert
+MIN_RISK_REWARD = 1.5  # Minimum 1:1.5 R:R to send an alert (was 2.0 — too restrictive)
 
 
 def is_actionable(setup) -> bool:
