@@ -12,6 +12,9 @@ Safety:
     - Minimum R:R validation
     - No duplicate symbol orders
     - Buying power check with 2% buffer
+    - MSTU/MSTZ mutual exclusion (never hold both simultaneously)
+    - Market regime filter (SPY SMA) — pickier in bearish markets
+    - Position rotation — swaps weak positions for strong new signals
     - Dry-run mode for testing
 """
 
@@ -27,6 +30,15 @@ from models.signals import TradeSetup, TradeAction
 from trading.alpaca_client import AlpacaClient, OrderResult
 
 logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────────────────
+#  Inverse ETF pairs — never hold both sides simultaneously
+# ──────────────────────────────────────────────────────────
+INVERSE_PAIRS = {
+    "MSTU": "MSTZ",   # MSTU is 2x long MSTR, MSTZ is 2x short MSTR
+    "MSTZ": "MSTU",
+}
 
 
 # ──────────────────────────────────────────────────────────
@@ -171,6 +183,128 @@ def _ticker_exposure(positions, equity: float) -> dict[str, float]:
 
 
 # ──────────────────────────────────────────────────────────
+#  Market Regime Filter (SPY SMA check)
+# ──────────────────────────────────────────────────────────
+
+_spy_regime_cache: dict[str, bool] = {}  # date → is_bullish
+
+def is_market_bullish(sma_period: int = 20) -> bool:
+    """
+    Check if SPY is above its 20-day SMA (bullish regime).
+    Cached per day to avoid redundant fetches.
+    """
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    if today in _spy_regime_cache:
+        return _spy_regime_cache[today]
+
+    try:
+        from data.fetcher import StockDataFetcher
+        df = StockDataFetcher("SPY").fetch(period="3mo", interval="1d")
+        if df is None or len(df) < sma_period + 1:
+            logger.warning("Cannot determine market regime — defaulting to bullish")
+            _spy_regime_cache[today] = True
+            return True
+
+        sma = df["Close"].rolling(sma_period).mean()
+        current_price = float(df["Close"].iloc[-1])
+        current_sma = float(sma.iloc[-1])
+        is_bullish = current_price > current_sma
+
+        logger.info(
+            f"Market regime: SPY ${current_price:.2f} vs {sma_period}d SMA "
+            f"${current_sma:.2f} → {'BULLISH' if is_bullish else 'BEARISH'}"
+        )
+        _spy_regime_cache[today] = is_bullish
+        return is_bullish
+    except Exception as e:
+        logger.warning(f"Market regime check failed: {e} — defaulting to bullish")
+        _spy_regime_cache[today] = True
+        return True
+
+
+# ──────────────────────────────────────────────────────────
+#  Position Rotation — swap weak positions for strong signals
+# ──────────────────────────────────────────────────────────
+
+def find_replaceable_position(
+    positions,
+    new_score: int,
+    new_ticker: str,
+    equity: float,
+) -> Optional[object]:
+    """
+    Find the weakest existing position that can be replaced by a stronger signal.
+
+    Rules (asymmetric — user's preference):
+    - Profitable positions: easier to swap (new score >= 5 is enough)
+    - Losing positions: much harder to swap (new score >= 8 required)
+    - Never swap a position for one in the same category
+    - Prefer swapping the position with lowest PnL% among candidates
+
+    Returns the position to sell, or None if no swap should happen.
+    """
+    if not positions:
+        return None
+
+    new_category = _get_category(new_ticker)
+
+    candidates = []
+    for pos in positions:
+        sym = pos.symbol.upper()
+
+        # Don't swap the same ticker
+        if sym == new_ticker.upper():
+            continue
+
+        # Don't swap the inverse of what we're buying (would defeat purpose)
+        if INVERSE_PAIRS.get(new_ticker.upper()) == sym:
+            continue
+
+        pnl_pct = pos.unrealized_plpc  # fraction, not percent
+
+        if pnl_pct >= 0:
+            # Position is profitable — lower bar
+            # Only swap if new signal is solid (score >= 5)
+            if abs(new_score) >= 5:
+                candidates.append((pos, pnl_pct, "profit"))
+        else:
+            # Position is at a loss — very high bar
+            # Only swap if new signal is exceptional (score >= 8)
+            if abs(new_score) >= 8:
+                candidates.append((pos, pnl_pct, "loss"))
+
+    if not candidates:
+        return None
+
+    # Prefer swapping profitable positions first (less painful)
+    # Among those, pick the one with highest profit (already captured most of its move)
+    profit_candidates = [(p, pnl, t) for p, pnl, t in candidates if t == "profit"]
+    if profit_candidates:
+        # Sort by highest profit % first (most of the move is done)
+        profit_candidates.sort(key=lambda x: -x[1])
+        best = profit_candidates[0]
+        logger.info(
+            f"Rotation candidate: {best[0].symbol} (profit {best[1]*100:+.1f}%) "
+            f"→ replace with {new_ticker} (score={new_score})"
+        )
+        return best[0]
+
+    # Fallback: swap a loser (only for exceptional signals)
+    loss_candidates = [(p, pnl, t) for p, pnl, t in candidates if t == "loss"]
+    if loss_candidates:
+        # Sort by worst PnL (cut the biggest loser)
+        loss_candidates.sort(key=lambda x: x[1])
+        best = loss_candidates[0]
+        logger.info(
+            f"Rotation candidate (LOSS swap): {best[0].symbol} "
+            f"(loss {best[1]*100:+.1f}%) → replace with {new_ticker} (score={new_score})"
+        )
+        return best[0]
+
+    return None
+
+
+# ──────────────────────────────────────────────────────────
 #  Share Size Calculator
 # ──────────────────────────────────────────────────────────
 
@@ -276,6 +410,21 @@ class AlpacaExecutor:
                 reason="SELL signal skipped — no short selling (halal compliance)",
             )
 
+        # ── Safety Check 1b: Market regime filter ────────
+        #    In bearish markets, require stronger signals
+        bullish_market = is_market_bullish()
+        if not bullish_market:
+            min_score_bearish = 5  # require score >= 5 in bearish market
+            if abs(setup.composite_score) < min_score_bearish:
+                return ExecutionRecord(
+                    ticker=ticker, action=action, qty=0,
+                    entry_price=setup.entry_price,
+                    sl=setup.stop_loss, tp=setup.take_profit,
+                    risk_reward=setup.risk_reward, executed=False,
+                    reason=f"Bearish market — score {setup.composite_score} "
+                           f"< min {min_score_bearish} required",
+                )
+
         # ── Safety Check 2: Minimum R:R ──────────────────
         min_rr = self.cfg.min_risk_reward
         if is_leveraged:
@@ -291,18 +440,72 @@ class AlpacaExecutor:
 
         # ── Safety Check 3: Max concurrent positions ─────
         open_positions = self.client.get_open_positions()
+        existing_symbols = {p.symbol.upper() for p in open_positions}
 
+        # ── Safety Check 3a: MSTU/MSTZ mutual exclusion ──
+        #    Never hold both sides of an inverse pair simultaneously
+        inverse_of = INVERSE_PAIRS.get(ticker.upper())
+        if inverse_of and inverse_of in existing_symbols:
+            # Close the inverse position first, then proceed
+            logger.info(
+                f"Inverse pair conflict: want {ticker} but holding {inverse_of}. "
+                f"Closing {inverse_of} first."
+            )
+            if not self.cfg.dry_run:
+                close_result = self.client.close_position(inverse_of)
+                if close_result.success:
+                    logger.info(f"Closed inverse position {inverse_of}")
+                    # Refresh positions after closing
+                    open_positions = self.client.get_open_positions()
+                    existing_symbols = {p.symbol.upper() for p in open_positions}
+                else:
+                    logger.error(f"Failed to close inverse {inverse_of}: {close_result.message}")
+
+        # ── Position Rotation: swap weak position for strong signal ──
+        if len(open_positions) >= self.cfg.max_concurrent_positions:
+            # Try to find a replaceable position
+            replaceable = find_replaceable_position(
+                open_positions,
+                new_score=setup.composite_score,
+                new_ticker=ticker,
+                equity=0,  # not used currently
+            )
+            if replaceable and not self.cfg.dry_run:
+                logger.info(
+                    f"ROTATION: Closing {replaceable.symbol} "
+                    f"(PnL {replaceable.unrealized_plpc*100:+.1f}%) "
+                    f"to make room for {ticker} (score={setup.composite_score})"
+                )
+                close_result = self.client.close_position(replaceable.symbol)
+                if close_result.success:
+                    logger.info(f"Closed {replaceable.symbol} for rotation")
+                    # Refresh positions
+                    open_positions = self.client.get_open_positions()
+                    existing_symbols = {p.symbol.upper() for p in open_positions}
+                else:
+                    logger.error(
+                        f"Failed to close {replaceable.symbol} for rotation: "
+                        f"{close_result.message}"
+                    )
+            elif replaceable and self.cfg.dry_run:
+                logger.info(
+                    f"[DRY RUN] Would rotate: close {replaceable.symbol} "
+                    f"(PnL {replaceable.unrealized_plpc*100:+.1f}%) "
+                    f"→ open {ticker} (score={setup.composite_score})"
+                )
+
+        # Re-check after potential rotation/inverse closure
         if len(open_positions) >= self.cfg.max_concurrent_positions:
             return ExecutionRecord(
                 ticker=ticker, action=action, qty=0,
                 entry_price=setup.entry_price,
                 sl=setup.stop_loss, tp=setup.take_profit,
                 risk_reward=setup.risk_reward, executed=False,
-                reason=f"Max total positions ({self.cfg.max_concurrent_positions}) reached",
+                reason=f"Max total positions ({self.cfg.max_concurrent_positions}) reached "
+                       f"(no suitable position to rotate)",
             )
 
         # ── Safety Check 4: No duplicate symbol ──────────
-        existing_symbols = {p.symbol.upper() for p in open_positions}
         if ticker.upper() in existing_symbols:
             return ExecutionRecord(
                 ticker=ticker, action=action, qty=0,

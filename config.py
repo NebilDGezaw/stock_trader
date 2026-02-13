@@ -209,8 +209,8 @@ LEVERAGED_MODE = {
     "atr_period": 14,
     "atr_sl_multiplier": 1.0,
     "atr_tp_multiplier": 2.0,      # keep at 2.0 — 1.5 was too tight
-    "trailing_stop": False,         # Disabled — hurts more than helps with tight TP
-    "trail_activation_atr": 1.2,    # move SL to breakeven after 1.2x ATR
+    "trailing_stop": True,          # ENABLED — locks in profits on volatile moves
+    "trail_activation_atr": 1.0,    # move SL to breakeven after 1.0x ATR profit
     "trail_distance_atr": 0.75,     # then trail at 0.75x ATR behind price
 
     # Volume
@@ -222,12 +222,12 @@ LEVERAGED_MODE = {
     "big_move_threshold": 0.05,     # 5% single-day move triggers bounce signal
     "big_move_score": 2,
 
-    # Scoring — much lower thresholds for more trades
+    # Scoring — require moderate conviction (not garbage signals)
     "score_thresholds": {
         "strong_buy": 4,            # was 5
-        "buy": 2,                   # was 3
-        "neutral": 1,               # was 2
-        "sell": 2,                  # was 3
+        "buy": 3,                   # was 2 — raised: score of 2 generated too many false entries
+        "neutral": 1,
+        "sell": 3,                  # was 2 — symmetrical with buy
         "strong_sell": 4,           # was 5
     },
 

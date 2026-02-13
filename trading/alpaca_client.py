@@ -21,6 +21,7 @@ try:
     from alpaca.trading.requests import (
         MarketOrderRequest,
         LimitOrderRequest,
+        StopOrderRequest,
         StopLimitOrderRequest,
         GetOrdersRequest,
         ReplaceOrderRequest,
@@ -479,6 +480,43 @@ class AlpacaClient:
         except Exception as e:
             logger.error(f"Cancel order {order_id} failed: {e}")
             return False
+
+    def place_stop_order(
+        self, symbol: str, qty: int, stop_price: float, side: str = "sell"
+    ) -> OrderResult:
+        """
+        Place a standalone stop order (used for trailing stops).
+
+        Parameters
+        ----------
+        symbol     : Stock symbol
+        qty        : Number of shares
+        stop_price : Trigger price for the stop
+        side       : "sell" for long positions, "buy" for short
+        """
+        self._ensure_connected()
+        try:
+            order_side = OrderSide.SELL if side.lower() == "sell" else OrderSide.BUY
+            request = StopOrderRequest(
+                symbol=symbol,
+                qty=qty,
+                side=order_side,
+                time_in_force=TimeInForce.GTC,
+                stop_price=round(stop_price, 2),
+            )
+            order = self._client.submit_order(request)
+            logger.info(
+                f"Stop order placed: {side.upper()} {qty} {symbol} "
+                f"@ stop ${stop_price:.2f} | ID={order.id}"
+            )
+            return OrderResult(
+                success=True,
+                order_id=str(order.id),
+                message=f"Stop order submitted",
+            )
+        except Exception as e:
+            logger.error(f"Stop order failed for {symbol}: {e}")
+            return OrderResult(success=False, message=str(e))
 
     # ── Internals ─────────────────────────────────────────
 

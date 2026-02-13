@@ -278,11 +278,16 @@ class AlpacaPositionManager:
                             reason=f"[DRY RUN] Signal reversed to {current_signal.value}",
                         )
 
-        # ── Step 2: Trail stop (via canceling old SL order and placing new one) ──
-        # NOTE: Alpaca bracket orders create child stop orders automatically.
-        # To "trail", we'd need to cancel the child stop and place a new one.
-        # This is complex with bracket orders, so we only do it at significant R levels.
-        if sl_price > 0 and r_multiple >= self.trail_activation_r:
+        # ── Step 2: Trail stop ─────────────────────────────────
+        # For leveraged ETFs with trailing enabled: cancel old SL → place new tighter SL
+        # For regular stocks: always trail at 1R+
+        is_leveraged = ticker.upper() in LEVERAGED_TICKERS
+        trail_enabled = (
+            config.LEVERAGED_MODE.get("trailing_stop", False) if is_leveraged
+            else True  # always trail regular stocks
+        )
+
+        if trail_enabled and sl_price > 0 and r_multiple >= self.trail_activation_r:
             atr = _get_current_atr(ticker)
             if atr <= 0:
                 trail_distance = risk * 0.75
@@ -294,21 +299,34 @@ class AlpacaPositionManager:
                 # Never move SL backwards, and must be above entry for profit lock
                 if new_sl > sl_price and new_sl > pos.avg_entry_price:
                     logger.info(
-                        f"Would trail stop {ticker}: "
+                        f"Trailing stop {ticker}: "
                         f"SL ${sl_price:.2f} → ${new_sl:.2f} (at {r_multiple:.1f}R)"
                     )
-                    # For now, log the trail suggestion. Actual modification
-                    # of bracket child orders requires finding and replacing
-                    # the stop leg, which we'll implement if needed.
-                    return PositionUpdate(
-                        symbol=ticker,
-                        action_taken="trail_stop" if not self.dry_run else "no_change",
-                        old_sl=sl_price,
-                        new_sl=new_sl,
-                        pnl=pos.unrealized_pl,
-                        reason=f"Trail suggested at {r_multiple:.1f}R: "
-                               f"SL ${sl_price:.2f} → ${new_sl:.2f}",
-                    )
+                    if not self.dry_run:
+                        # Cancel ALL existing stop orders for this symbol
+                        success = self._replace_stop_order(
+                            ticker, int(pos.qty), new_sl, "sell"
+                        )
+                        if success:
+                            return PositionUpdate(
+                                symbol=ticker,
+                                action_taken="trail_stop",
+                                old_sl=sl_price,
+                                new_sl=new_sl,
+                                pnl=pos.unrealized_pl,
+                                reason=f"Trailed at {r_multiple:.1f}R: "
+                                       f"SL ${sl_price:.2f} → ${new_sl:.2f}",
+                            )
+                    else:
+                        return PositionUpdate(
+                            symbol=ticker,
+                            action_taken="trail_stop",
+                            old_sl=sl_price,
+                            new_sl=new_sl,
+                            pnl=pos.unrealized_pl,
+                            reason=f"[DRY RUN] Trail at {r_multiple:.1f}R: "
+                                   f"SL ${sl_price:.2f} → ${new_sl:.2f}",
+                        )
 
         # No action needed
         return PositionUpdate(
@@ -317,6 +335,31 @@ class AlpacaPositionManager:
             pnl=pos.unrealized_pl,
             reason=f"R={r_multiple:.2f}, holding",
         )
+
+    def _replace_stop_order(
+        self, symbol: str, qty: int, new_stop_price: float, side: str
+    ) -> bool:
+        """Cancel old stop orders and place a new one at the tighter level."""
+        import time
+
+        # Cancel existing stop orders
+        orders = self.client.get_open_orders(symbol)
+        cancelled = False
+        for order in orders:
+            if order.get("stop_price", 0) > 0:
+                oid = order.get("id", "")
+                logger.info(f"Cancelling old stop order {oid} on {symbol}")
+                self.client.cancel_order(oid)
+                cancelled = True
+
+        if cancelled:
+            time.sleep(1)  # Wait for cancellation to propagate
+
+        # Place new stop order
+        result = self.client.place_stop_order(
+            symbol=symbol, qty=qty, stop_price=new_stop_price, side=side
+        )
+        return result.success
 
     def _find_stop_loss_price(self, symbol: str) -> float:
         """Find the current stop-loss price from open orders for a symbol."""
