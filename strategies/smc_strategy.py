@@ -59,15 +59,17 @@ class SMCStrategy:
         """Execute the full strategy pipeline."""
         if self.stock_mode:
             self._apply_stock_overrides()
-        self._run_sub_strategies()
-        self._apply_confluence_filters()
-        if self.stock_mode:
-            self._apply_trend_momentum_bonus()
-        self._apply_fakeout_filters()
-        self._compute_composite_score()
-        self._generate_trade_setup()
-        if self.stock_mode:
-            self._restore_config()
+        try:
+            self._run_sub_strategies()
+            self._apply_confluence_filters()
+            if self.stock_mode:
+                self._apply_trend_momentum_bonus()
+            self._apply_fakeout_filters()
+            self._compute_composite_score()
+            self._generate_trade_setup()
+        finally:
+            if self.stock_mode:
+                self._restore_config()
         return self
 
     @property
@@ -331,10 +333,10 @@ class SMCStrategy:
                 self._bullish_score += sig.score
             elif sig.bias == MarketBias.BEARISH:
                 self._bearish_score += sig.score
-            # NEUTRAL signals add to both (confluence bonus)
-            else:
-                self._bullish_score += sig.score
-                self._bearish_score += sig.score
+            # NEUTRAL signals are informational — they don't affect
+            # the directional score. Adding to both sides inflates raw
+            # scores and distorts the fakeout ratio check (Rule 2)
+            # without changing the net score at all.
 
         net = self._bullish_score - self._bearish_score
         if net > 0:

@@ -242,7 +242,7 @@ def count_consecutive_breaks(df: pd.DataFrame, bar_idx: int, level: float,
     Genuine breaks hold; fakeouts snap back within 1-2 candles.
     """
     count = 0
-    for i in range(bar_idx, min(bar_idx + lookforward, len(df))):
+    for i in range(bar_idx + 1, min(bar_idx + 1 + lookforward, len(df))):
         close = df.iloc[i]["Close"]
         if direction == "above" and close > level:
             count += 1
@@ -305,12 +305,16 @@ def trend_sma_bias(df: pd.DataFrame, period: int = 20) -> str:
 
 
 def compute_rsi_series(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    """Compute RSI as a full Series (for the leveraged strategy)."""
+    """
+    Compute RSI as a full Series using Wilder's smoothing (EMA with alpha=1/period).
+    This matches TradingView, ThinkorSwim, and standard RSI implementations.
+    """
     delta = df["Close"].diff()
     gain = delta.where(delta > 0, 0.0)
     loss = (-delta).where(delta < 0, 0.0)
-    avg_gain = gain.rolling(window=period, min_periods=1).mean()
-    avg_loss = loss.rolling(window=period, min_periods=1).mean()
+    # Wilder's smoothing: equivalent to EMA with alpha = 1/period
+    avg_gain = gain.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.inf)
     rsi = 100.0 - (100.0 / (1.0 + rs))
     return rsi
@@ -332,14 +336,27 @@ def compute_ema(df: pd.DataFrame, period: int) -> pd.Series:
 
 def compute_vwap(df: pd.DataFrame) -> pd.Series:
     """
-    Volume-weighted average price.
-    For daily data, computes a rolling cumulative VWAP.
+    Volume-weighted average price, resetting each trading day.
+    For intraday data: accumulates from start of each day.
+    For daily data: uses a 20-bar rolling window as approximation.
     """
     typical_price = (df["High"] + df["Low"] + df["Close"]) / 3.0
     vol = df["Volume"].replace(0, np.nan).fillna(1)
-    cum_tp_vol = (typical_price * vol).cumsum()
-    cum_vol = vol.cumsum()
-    return cum_tp_vol / cum_vol
+    tp_vol = typical_price * vol
+
+    # Detect if intraday: if multiple bars share the same date, reset daily
+    if hasattr(df.index, 'date'):
+        dates = pd.Series(df.index.date, index=df.index)
+        day_groups = dates.ne(dates.shift()).cumsum()
+        cum_tp_vol = tp_vol.groupby(day_groups).cumsum()
+        cum_vol = vol.groupby(day_groups).cumsum()
+        return cum_tp_vol / cum_vol
+    else:
+        # Daily data: use rolling window (true VWAP isn't meaningful here)
+        window = min(20, len(df))
+        cum_tp_vol = tp_vol.rolling(window=window, min_periods=1).sum()
+        cum_vol = vol.rolling(window=window, min_periods=1).sum()
+        return cum_tp_vol / cum_vol
 
 
 def bb_squeeze_detected(df: pd.DataFrame, period: int = 20, std: float = 2.0,
@@ -432,14 +449,16 @@ def detect_rsi_divergence(df: pd.DataFrame, rsi_series: pd.Series, lookback: int
 def compute_rsi(df: pd.DataFrame, period: int = 14) -> float:
     """
     Compute RSI (Relative Strength Index) for the most recent bar.
-    Used as a momentum filter — avoids buying overbought or selling oversold.
+    Uses Wilder's smoothing (EMA with alpha=1/period) to match standard
+    platforms (TradingView, ThinkorSwim, etc.).
     """
     delta = df["Close"].diff()
     gain = delta.where(delta > 0, 0.0)
     loss = (-delta).where(delta < 0, 0.0)
 
-    avg_gain = gain.rolling(window=period, min_periods=1).mean()
-    avg_loss = loss.rolling(window=period, min_periods=1).mean()
+    # Wilder's smoothing: equivalent to EMA with alpha = 1/period
+    avg_gain = gain.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
 
     rs = avg_gain / avg_loss.replace(0, np.inf)
     rsi = 100.0 - (100.0 / (1.0 + rs))

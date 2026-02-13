@@ -30,7 +30,7 @@ _MAX_PERIOD_FOR_INTERVAL: dict[str, str] = {
 }
 
 # Ordered list so we can compare which period is "larger"
-_PERIOD_ORDER = ["1d", "5d", "7d", "1mo", "3mo", "6mo", "60d", "1y", "2y", "5y", "10y", "max"]
+_PERIOD_ORDER = ["1d", "5d", "7d", "1mo", "60d", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"]
 
 def _period_index(p: str) -> int:
     try:

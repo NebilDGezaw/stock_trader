@@ -315,10 +315,19 @@ class TradeExecutor:
                 reason="Cannot retrieve account info",
             )
 
-        daily_pnl = sum(p.profit for p in open_positions)
+        # Daily P&L approximation for MT5:
+        # equity - balance = total floating P&L on open positions.
+        # This is the best we can do without state persistence across runs.
+        # It correctly reflects ALL open position losses, not just sum of
+        # individual unrealized P&L (which could miss realized today).
+        floating_pnl = acct.equity - acct.balance
         if acct.balance > 0:
-            daily_loss_pct = abs(min(0, daily_pnl)) / acct.balance * 100
+            daily_loss_pct = abs(min(0, floating_pnl)) / acct.balance * 100
             if daily_loss_pct >= self.cfg.max_daily_loss_pct:
+                logger.warning(
+                    f"DAILY LOSS BREAKER: {daily_loss_pct:.1f}% floating loss "
+                    f"(equity ${acct.equity:,.0f} vs balance ${acct.balance:,.0f})"
+                )
                 return ExecutionRecord(
                     ticker=ticker, mt5_symbol=mt5_sym, action=action,
                     volume=0, entry_price=setup.entry_price,

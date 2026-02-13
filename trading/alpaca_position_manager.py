@@ -54,6 +54,8 @@ class PositionUpdate:
 def _get_current_atr(ticker: str, period: int = 14) -> float:
     """Fetch recent data and compute ATR for a ticker."""
     try:
+        from utils.helpers import compute_atr
+
         is_leveraged = ticker.upper() in LEVERAGED_TICKERS
         interval = "1h" if is_leveraged else "1d"
         fetch_period = "1mo" if is_leveraged else "3mo"
@@ -62,12 +64,9 @@ def _get_current_atr(ticker: str, period: int = 14) -> float:
         if df is None or len(df) < period + 1:
             return 0.0
 
-        high = df["High"]
-        low = df["Low"]
-        close = df["Close"].shift(1)
-        tr = (high - low).combine(abs(high - close), max).combine(abs(low - close), max)
-        atr = tr.rolling(period).mean().iloc[-1]
-        return float(atr) if atr == atr else 0.0  # NaN check
+        atr_series = compute_atr(df, period=period)
+        atr = float(atr_series.iloc[-1])
+        return atr if atr == atr else 0.0  # NaN check
     except Exception as e:
         logger.warning(f"ATR fetch failed for {ticker}: {e}")
         return 0.0
@@ -252,17 +251,32 @@ class AlpacaPositionManager:
             if not self.dry_run:
                 # Cancel any existing orders first
                 self._cancel_all_orders(ticker)
-                result = self.client.place_stop_order(
-                    symbol=ticker,
-                    qty=int(pos.qty),
-                    stop_price=protective_sl,
-                    side="sell",
-                )
-                if result.success:
-                    logger.info(
-                        f"Placed protective SL on {ticker}: ${protective_sl:.2f} "
-                        f"(entry=${pos.avg_entry_price:.2f})"
+                # Retry SL placement up to 3 times — a naked position is critical
+                import time
+                sl_placed = False
+                for attempt in range(3):
+                    result = self.client.place_stop_order(
+                        symbol=ticker,
+                        qty=int(pos.qty),
+                        stop_price=protective_sl,
+                        side="sell",
                     )
+                    if result.success:
+                        sl_placed = True
+                        logger.info(
+                            f"Placed protective SL on {ticker}: ${protective_sl:.2f} "
+                            f"(entry=${pos.avg_entry_price:.2f})"
+                        )
+                        break
+                    else:
+                        logger.error(
+                            f"CRITICAL: SL placement FAILED for {ticker} "
+                            f"(attempt {attempt + 1}/3): {result.message}"
+                        )
+                        if attempt < 2:
+                            time.sleep(2)
+
+                if sl_placed:
                     return PositionUpdate(
                         symbol=ticker,
                         action_taken="trail_stop",
@@ -270,6 +284,14 @@ class AlpacaPositionManager:
                         new_sl=protective_sl,
                         pnl=pos.unrealized_pl,
                         reason=f"Placed missing SL: ${protective_sl:.2f}",
+                    )
+                else:
+                    logger.error(
+                        f"CRITICAL: ALL 3 SL placement attempts FAILED for {ticker}. "
+                        f"Position is NAKED with NO stop loss! "
+                        f"Entry=${pos.avg_entry_price:.2f}, "
+                        f"Current=${pos.current_price:.2f}, "
+                        f"PnL=${pos.unrealized_pl:+.2f}"
                     )
             else:
                 return PositionUpdate(
@@ -316,6 +338,8 @@ class AlpacaPositionManager:
                         f"position={pos.side}, new_signal={current_signal.value}"
                     )
                     if not self.dry_run:
+                        # Cancel bracket SL/TP legs FIRST to prevent orphaned orders
+                        self._cancel_all_orders(ticker)
                         result = self.client.close_position(ticker)
                         if result.success:
                             return PositionUpdate(
@@ -323,6 +347,11 @@ class AlpacaPositionManager:
                                 action_taken="full_close",
                                 pnl=pos.unrealized_pl,
                                 reason=f"Signal reversed to {current_signal.value}",
+                            )
+                        else:
+                            logger.error(
+                                f"CRITICAL: Cancelled orders on {ticker} but "
+                                f"failed to close position: {result.message}"
                             )
                     else:
                         return PositionUpdate(
@@ -416,11 +445,25 @@ class AlpacaPositionManager:
                     self.client.cancel_order(oid)
             time.sleep(1.5)  # Wait for cancellation to propagate
 
-        # Place new stop order at the tighter level
-        result = self.client.place_stop_order(
-            symbol=symbol, qty=qty, stop_price=new_stop_price, side=side
+        # Place new stop order with retry — position is NAKED after cancellation
+        for attempt in range(3):
+            result = self.client.place_stop_order(
+                symbol=symbol, qty=qty, stop_price=new_stop_price, side=side
+            )
+            if result.success:
+                return True
+            logger.error(
+                f"CRITICAL: Trail SL placement FAILED for {symbol} "
+                f"(attempt {attempt + 1}/3): {result.message}"
+            )
+            if attempt < 2:
+                time.sleep(2)
+
+        logger.error(
+            f"CRITICAL: ALL 3 trail SL attempts FAILED for {symbol}. "
+            f"Position may be NAKED after order cancellation!"
         )
-        return result.success
+        return False
 
     def _cancel_all_orders(self, symbol: str):
         """Cancel all open orders for a symbol."""

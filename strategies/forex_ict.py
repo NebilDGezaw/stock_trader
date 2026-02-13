@@ -130,8 +130,9 @@ class ForexICTStrategy:
         Determine daily bias from the Asian session (00-06 UTC).
         If price sweeps Asian high → bearish bias.
         If price sweeps Asian low  → bullish bias.
-        Look at the most recent complete Asian session relative to
-        the last bar in the window.
+
+        Walk FORWARD through today's bars to correctly identify
+        the Asian range and then check post-Asian bars for sweeps.
         """
         df = self.df
         if len(df) < 10:
@@ -141,40 +142,37 @@ class ForexICTStrategy:
         if not hasattr(last_ts, 'hour'):
             return
 
-        # Find Asian session bars for today (or the most recent session)
-        asian_bars = []
-        post_asian_bars = []
-
-        for i in range(len(df) - 1, -1, -1):
-            ts = df.index[i]
-            if not hasattr(ts, 'hour'):
-                break
-            hour = ts.hour
-            if 0 <= hour <= 5:
-                asian_bars.append(i)
-            elif hour >= 7 and len(asian_bars) > 0:
-                # We've found asian bars and now we're past them
-                post_asian_bars.append(i)
-            # Stop searching after we have enough context
-            if len(asian_bars) > 0 and hour >= 7 and len(post_asian_bars) > 5:
-                break
-            if len(asian_bars) > 20:
-                break
-
-        if len(asian_bars) < 2:
+        # Determine which day to analyze (the day of the last bar)
+        last_date = last_ts.date() if hasattr(last_ts, 'date') else None
+        if last_date is None:
             return
 
-        asian_indices = sorted(asian_bars)
+        # Walk forward through the DataFrame, collecting today's Asian
+        # bars and post-Asian bars
+        asian_indices = []
+        post_asian_indices = []
+
+        for i in range(len(df)):
+            ts = df.index[i]
+            if not hasattr(ts, 'hour'):
+                continue
+            bar_date = ts.date() if hasattr(ts, 'date') else None
+            if bar_date != last_date:
+                continue  # only look at today's bars
+            hour = ts.hour
+            if 0 <= hour <= 5:
+                asian_indices.append(i)
+            elif hour >= 7:
+                post_asian_indices.append(i)
+
+        if len(asian_indices) < 2:
+            return
+
         asian_high = df.iloc[asian_indices]["High"].max()
         asian_low = df.iloc[asian_indices]["Low"].min()
 
-        # Check if post-Asian price swept either level
-        last_price = df.iloc[-1]["Close"]
-        last_high = df.iloc[-1]["High"]
-        last_low = df.iloc[-1]["Low"]
-
-        # Check recent bars (after Asian) for sweeps
-        for idx in post_asian_bars:
+        # Check post-Asian bars (chronological order) for sweeps
+        for idx in post_asian_indices:
             bar = df.iloc[idx]
             if bar["High"] > asian_high:
                 self._session_bias = "bearish"
@@ -184,6 +182,8 @@ class ForexICTStrategy:
                 return
 
         # Also check the current bar
+        last_high = df.iloc[-1]["High"]
+        last_low = df.iloc[-1]["Low"]
         if last_high > asian_high:
             self._session_bias = "bearish"
         elif last_low < asian_low:
@@ -327,9 +327,7 @@ class ForexICTStrategy:
                 self._bullish_score += sig.score
             elif sig.bias == MarketBias.BEARISH:
                 self._bearish_score += sig.score
-            else:
-                self._bullish_score += sig.score
-                self._bearish_score += sig.score
+            # NEUTRAL signals are informational — don't inflate both sides
 
         net = self._bullish_score - self._bearish_score
         if net > 0:

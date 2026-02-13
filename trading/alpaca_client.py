@@ -52,6 +52,7 @@ class AccountInfo:
     pattern_day_trader: bool
     trading_blocked: bool
     account_blocked: bool
+    last_equity: float = 0.0  # equity at previous market close (for daily P&L)
 
 
 @dataclass
@@ -177,6 +178,7 @@ class AlpacaClient:
                 pattern_day_trader=bool(acct.pattern_day_trader),
                 trading_blocked=bool(acct.trading_blocked),
                 account_blocked=bool(acct.account_blocked),
+                last_equity=float(getattr(acct, 'last_equity', 0) or 0),
             )
         except Exception as e:
             logger.error(f"Failed to get account info: {e}")

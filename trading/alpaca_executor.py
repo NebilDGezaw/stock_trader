@@ -125,6 +125,7 @@ class AlpacaExecutorConfig:
     leveraged_risk_pct: float = 0.02       # 2% for leveraged ETFs
     min_risk_reward: float = 2.0           # minimum R:R to execute
     min_shares: int = 1                    # minimum share count
+    max_notional_pct: float = 0.20         # max 20% of equity in a single position
     dry_run: bool = False                  # log only, don't place orders
 
 
@@ -562,10 +563,20 @@ class AlpacaExecutor:
                 reason="Trading is blocked on this account",
             )
 
-        daily_pnl = sum(p.unrealized_pl for p in open_positions)
+        # Daily P&L: compare current equity to previous day's close equity
+        # last_equity comes from Alpaca's API (equity at prior market close)
+        if acct.last_equity > 0:
+            daily_pnl = acct.equity - acct.last_equity
+        else:
+            # Fallback: total unrealized (imperfect but better than nothing)
+            daily_pnl = sum(p.unrealized_pl for p in open_positions)
         if acct.equity > 0 and daily_pnl < 0:
             daily_loss_pct = abs(daily_pnl) / acct.equity * 100
             if daily_loss_pct >= self.cfg.max_daily_loss_pct:
+                logger.warning(
+                    f"DAILY LOSS BREAKER: {daily_loss_pct:.1f}% loss today "
+                    f"(equity ${acct.equity:,.0f} vs prev close ${acct.last_equity:,.0f})"
+                )
                 return ExecutionRecord(
                     ticker=ticker, action=action, qty=0,
                     entry_price=setup.entry_price,
@@ -640,6 +651,30 @@ class AlpacaExecutor:
                 risk_reward=setup.risk_reward, executed=False,
                 reason="Calculated share count is 0 (SL too tight or equity too low)",
             )
+
+        # ── Notional cap: prevent any single position > max_notional_pct ─
+        #    When ATR compresses and SL distance shrinks, share count can
+        #    explode. This hard cap prevents a single position from being
+        #    an outsized % of equity regardless of SL distance.
+        max_notional = acct.equity * self.cfg.max_notional_pct
+        notional = qty * setup.entry_price
+        if notional > max_notional:
+            capped_qty = int(max_notional / setup.entry_price)
+            logger.info(
+                f"NOTIONAL CAP: {ticker} capped from {qty} to {capped_qty} shares "
+                f"(${notional:,.0f} → ${capped_qty * setup.entry_price:,.0f}, "
+                f"max {self.cfg.max_notional_pct*100:.0f}% of equity)"
+            )
+            qty = capped_qty
+            if qty <= 0:
+                return ExecutionRecord(
+                    ticker=ticker, action=action, qty=0,
+                    entry_price=setup.entry_price,
+                    sl=setup.stop_loss, tp=setup.take_profit,
+                    risk_reward=setup.risk_reward, executed=False,
+                    reason=f"Notional cap ({self.cfg.max_notional_pct*100:.0f}%) "
+                           f"would result in 0 shares",
+                )
 
         # ── Cap qty by remaining category room ───────────
         remaining_cat_room = (cat_cap - current_cat_pct) * acct.equity
