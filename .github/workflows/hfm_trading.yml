@@ -42,7 +42,7 @@ on:
         required: true
         default: "verify"
         type: choice
-        options: [entry, monitor, summary, verify]
+        options: [entry, monitor, summary, verify, cleanup]
       session:
         description: "Session (for entry mode)"
         required: false
@@ -102,6 +102,49 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode verify --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
+
+  # ═══════════════════════════════════════════════════════
+  cleanup:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    if: github.event.inputs.mode == 'cleanup'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - uses: actions/cache@v4
+        id: cache-mt5
+        with:
+          path: 'C:\Program Files\MetaTrader 5'
+          key: ${{ runner.os }}-mt5-choco-v2
+      - name: Install MT5
+        if: steps.cache-mt5.outputs.cache-hit != 'true'
+        run: choco install metatrader5 --pre -y
+      - name: Enable AutoTrading
+        shell: pwsh
+        run: |
+          $cfgDir = "C:\Program Files\MetaTrader 5\config"
+          New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+          @"
+          [Experts]
+          AllowLiveTrading=1
+          Enabled=1
+          Account=0
+          Profile=0
+          "@ | Set-Content "$cfgDir\common.ini" -Encoding ASCII
+      - name: Install packages
+        run: pip install MetaTrader5 yfinance pandas numpy
+      - name: "Cleanup — Close All Positions"
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
+        run: |
+          python -m trading.run_trading --mode cleanup --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe" ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
 
   # ═══════════════════════════════════════════════════════
   #  ENTRY JOBS

@@ -311,6 +311,9 @@ def mode_monitor(client: MT5Client, dry_run: bool):
         partial_close_at_r=1.0,
         partial_close_pct=0.5,
         enable_reversal_close=True,
+        max_position_age_hours=48.0,   # close stuck positions after 48h
+        max_loss_r_multiple=-2.0,      # close if loss exceeds 2R
+        close_losing_on_hold=True,     # close losers when signal goes neutral
         dry_run=dry_run,
     )
 
@@ -435,6 +438,69 @@ def mode_verify(client: MT5Client):
 
 
 # ──────────────────────────────────────────────────────────
+#  Mode: Cleanup — force-close all stuck/losing positions
+# ──────────────────────────────────────────────────────────
+
+def mode_cleanup(client: MT5Client, dry_run: bool):
+    """
+    Force-close all open bot positions.
+    Use this to clear stuck positions and start fresh.
+    """
+    logger.info("=== CLEANUP MODE: Closing ALL open bot positions ===")
+
+    positions = client.get_open_positions()
+    if not positions:
+        logger.info("No open bot positions to clean up.")
+        send_telegram("🧹 <b>Cleanup</b>\nNo open positions to close.")
+        return
+
+    closed = []
+    failed = []
+    total_pnl = 0.0
+
+    for pos in positions:
+        logger.info(
+            f"Closing {pos.type} {pos.volume} {pos.symbol} "
+            f"(ticket={pos.ticket}, PnL={pos.profit:+.2f})"
+        )
+        if not dry_run:
+            result = client.close_position(pos.ticket, comment="cleanup_close")
+            if result.success:
+                closed.append(pos)
+                total_pnl += pos.profit
+            else:
+                failed.append(pos)
+                logger.error(f"Failed to close {pos.ticket}: {result.message}")
+        else:
+            closed.append(pos)
+            total_pnl += pos.profit
+            logger.info(f"[DRY RUN] Would close {pos.ticket}")
+
+    # Send Telegram notification
+    mode_tag = " [DRY RUN]" if dry_run else ""
+    lines = [
+        f"🧹 <b>Cleanup{mode_tag}</b>",
+        f"{'─' * 28}",
+        f"✅ Closed: {len(closed)} positions",
+        f"❌ Failed: {len(failed)} positions",
+        f"💵 Total PnL from closed: <code>${total_pnl:+,.2f}</code>",
+        "",
+    ]
+    for pos in closed:
+        emoji = "🟢" if pos.profit >= 0 else "🔴"
+        lines.append(
+            f"  {emoji} {pos.type} {pos.volume} {pos.symbol} "
+            f"PnL: <code>${pos.profit:+.2f}</code>"
+        )
+    send_telegram("\n".join(lines))
+
+    logger.info(
+        f"=== Cleanup complete: {len(closed)} closed, "
+        f"{len(failed)} failed, PnL={total_pnl:+.2f} ==="
+    )
+
+
+# ──────────────────────────────────────────────────────────
 #  Main
 # ──────────────────────────────────────────────────────────
 
@@ -442,7 +508,7 @@ def main():
     parser = argparse.ArgumentParser(description="HFM Trading Runner")
     parser.add_argument(
         "--mode", required=True,
-        choices=["entry", "monitor", "summary", "verify"],
+        choices=["entry", "monitor", "summary", "verify", "cleanup"],
         help="Operating mode",
     )
     parser.add_argument(
@@ -488,6 +554,8 @@ def main():
             mode_summary(client)
         elif args.mode == "verify":
             mode_verify(client)
+        elif args.mode == "cleanup":
+            mode_cleanup(client, args.dry_run)
     except Exception as e:
         logger.exception(f"Unhandled error: {e}")
         send_telegram(f"❌ <b>HFM Bot Error</b>\n<code>{e}</code>")

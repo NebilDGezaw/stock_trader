@@ -53,6 +53,7 @@ class PositionInfo:
     comment: str
     magic: int
     time_str: str
+    time: int = 0       # Unix timestamp of position open time
 
 
 @dataclass
@@ -558,6 +559,7 @@ class MT5Client:
                 comment=p.comment,
                 magic=p.magic,
                 time_str=str(p.time),
+                time=int(p.time),
             ))
         return result
 
@@ -581,6 +583,7 @@ class MT5Client:
                 comment=p.comment,
                 magic=p.magic,
                 time_str=str(p.time),
+                time=int(p.time),
             ))
         return result
 

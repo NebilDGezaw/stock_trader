@@ -119,6 +119,9 @@ class PositionManager:
         partial_close_at_r: float = 1.0,
         partial_close_pct: float = 0.5,
         enable_reversal_close: bool = True,
+        max_position_age_hours: float = 48.0,   # close after 48h (2 days)
+        max_loss_r_multiple: float = -2.0,       # close if loss exceeds 2R
+        close_losing_on_hold: bool = True,       # close losers when signal is HOLD
         dry_run: bool = False,
     ):
         self.client = client
@@ -127,6 +130,9 @@ class PositionManager:
         self.partial_close_at_r = partial_close_at_r
         self.partial_close_pct = partial_close_pct
         self.enable_reversal_close = enable_reversal_close
+        self.max_position_age_hours = max_position_age_hours
+        self.max_loss_r_multiple = max_loss_r_multiple
+        self.close_losing_on_hold = close_losing_on_hold
         self.dry_run = dry_run
 
     def manage_all(self) -> list[PositionUpdate]:
@@ -180,8 +186,27 @@ class PositionManager:
 
     # ── Internal ──────────────────────────────────────────
 
+    def _close_position(self, pos: PositionInfo, reason: str, comment: str) -> Optional[PositionUpdate]:
+        """Helper: close a position and return the update record."""
+        if not self.dry_run:
+            result = self.client.close_position(pos.ticket, comment=comment)
+            if result.success:
+                return PositionUpdate(
+                    ticket=pos.ticket, symbol=pos.symbol,
+                    action_taken="full_close", pnl=pos.profit, reason=reason,
+                )
+            else:
+                logger.warning(f"Failed to close {pos.ticket}: {result}")
+                return None
+        else:
+            return PositionUpdate(
+                ticket=pos.ticket, symbol=pos.symbol,
+                action_taken="full_close", pnl=pos.profit,
+                reason=f"[DRY RUN] {reason}",
+            )
+
     def _manage_position(self, pos: PositionInfo) -> Optional[PositionUpdate]:
-        """Manage a single position: trail, partial close, or reversal close."""
+        """Manage a single position: age/loss limits, trail, partial close, or reversal close."""
         ticker_yf = to_yfinance(pos.symbol)
         is_buy = pos.type == "BUY"
 
@@ -204,15 +229,47 @@ class PositionManager:
 
         r_multiple = profit_distance / risk
 
+        # Calculate position age in hours
+        try:
+            open_time = datetime.utcfromtimestamp(pos.time) if isinstance(pos.time, (int, float)) else pos.time
+            age_hours = (datetime.utcnow() - open_time).total_seconds() / 3600.0
+        except Exception:
+            age_hours = 0.0
+
         logger.info(
             f"Position {pos.ticket} {pos.symbol} {pos.type}: "
             f"entry={pos.open_price}, current={current_price}, "
-            f"SL={pos.sl}, TP={pos.tp}, R={r_multiple:.2f}, PnL={pos.profit:.2f}"
+            f"SL={pos.sl}, TP={pos.tp}, R={r_multiple:.2f}, "
+            f"PnL={pos.profit:.2f}, age={age_hours:.1f}h"
         )
 
-        # ── Step 1: Check for signal reversal ────────────
+        # ── Step 0a: MAX LOSS CIRCUIT-BREAKER ────────────
+        # Close immediately if loss exceeds max R threshold
+        if r_multiple <= self.max_loss_r_multiple:
+            reason = (
+                f"Max loss hit: R={r_multiple:.2f} <= {self.max_loss_r_multiple}R "
+                f"(PnL={pos.profit:.2f}, age={age_hours:.1f}h)"
+            )
+            logger.warning(f"CLOSING {pos.ticket} {pos.symbol}: {reason}")
+            result = self._close_position(pos, reason, "max_loss_close")
+            if result:
+                return result
+
+        # ── Step 0b: MAX AGE TIMEOUT ─────────────────────
+        # Close positions that have been open too long (stuck trades)
+        if age_hours >= self.max_position_age_hours:
+            reason = (
+                f"Position timeout: {age_hours:.1f}h >= {self.max_position_age_hours}h "
+                f"(R={r_multiple:.2f}, PnL={pos.profit:.2f})"
+            )
+            logger.warning(f"CLOSING {pos.ticket} {pos.symbol}: {reason}")
+            result = self._close_position(pos, reason, "timeout_close")
+            if result:
+                return result
+
+        # ── Step 1: Check for signal reversal / HOLD on losers ───
         if self.enable_reversal_close and r_multiple < 0.5:
-            # Only check reversal when trade is near breakeven or losing
+            # Check reversal when trade is near breakeven or losing
             current_signal = _rerun_strategy(ticker_yf)
             if current_signal is not None:
                 signal_is_buy = current_signal in (
@@ -221,30 +278,27 @@ class PositionManager:
                 signal_is_sell = current_signal in (
                     TradeAction.SELL, TradeAction.STRONG_SELL
                 )
+                signal_is_hold = current_signal == TradeAction.HOLD
 
+                # Close on explicit reversal
                 if (is_buy and signal_is_sell) or (not is_buy and signal_is_buy):
-                    logger.info(
-                        f"Signal REVERSED for {pos.symbol}: "
-                        f"position={pos.type}, new_signal={current_signal.value}"
+                    reason = f"Signal reversed to {current_signal.value} (R={r_multiple:.2f})"
+                    logger.info(f"Signal REVERSED for {pos.symbol}: {reason}")
+                    result = self._close_position(pos, reason, "reversal_close")
+                    if result:
+                        return result
+
+                # NEW: Close losing positions when signal goes HOLD
+                # If the trade was a buy but signal is now neutral, cut the loss
+                if self.close_losing_on_hold and signal_is_hold and r_multiple < -0.5:
+                    reason = (
+                        f"Signal is HOLD and position losing: R={r_multiple:.2f}, "
+                        f"PnL={pos.profit:.2f} — no longer confirmed"
                     )
-                    if not self.dry_run:
-                        result = self.client.close_position(
-                            pos.ticket, comment="reversal_close"
-                        )
-                        if result.success:
-                            return PositionUpdate(
-                                ticket=pos.ticket, symbol=pos.symbol,
-                                action_taken="full_close",
-                                pnl=pos.profit,
-                                reason=f"Signal reversed to {current_signal.value}",
-                            )
-                    else:
-                        return PositionUpdate(
-                            ticket=pos.ticket, symbol=pos.symbol,
-                            action_taken="full_close",
-                            pnl=pos.profit,
-                            reason=f"[DRY RUN] Signal reversed to {current_signal.value}",
-                        )
+                    logger.info(f"Closing unconfirmed loser {pos.symbol}: {reason}")
+                    result = self._close_position(pos, reason, "hold_loser_close")
+                    if result:
+                        return result
 
         # ── Step 2: Partial close at 1R ──────────────────
         # Only if the position hasn't already been partially closed
@@ -336,5 +390,5 @@ class PositionManager:
             ticket=pos.ticket, symbol=pos.symbol,
             action_taken="no_change",
             pnl=pos.profit,
-            reason=f"R={r_multiple:.2f}, holding",
+            reason=f"R={r_multiple:.2f}, age={age_hours:.1f}h, holding",
         )
