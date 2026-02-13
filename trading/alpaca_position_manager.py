@@ -81,7 +81,8 @@ def _rerun_strategy(ticker: str) -> Optional[TradeAction]:
         is_leveraged = ticker.upper() in LEVERAGED_TICKERS
 
         if is_leveraged:
-            df = StockDataFetcher(ticker).fetch(period="3mo", interval="1d")
+            # MUST match the entry interval (1h) for consistency
+            df = StockDataFetcher(ticker).fetch(period="3mo", interval="1h")
         else:
             df = StockDataFetcher(ticker).fetch(period="6mo", interval="1d")
 
@@ -227,9 +228,62 @@ class AlpacaPositionManager:
         # Calculate R-multiple
         risk = abs(pos.avg_entry_price - sl_price) if sl_price > 0 else 0
         if risk == 0:
-            logger.warning(f"Position {ticker} has no SL order — skipping trail logic")
-            # Still check reversal
-            risk = pos.avg_entry_price * 0.02  # fallback: 2% as risk
+            # CRITICAL: Position has no stop loss — place a protective stop NOW
+            logger.warning(f"Position {ticker} has NO SL order — placing protective stop")
+            is_leveraged = ticker.upper() in LEVERAGED_TICKERS
+            atr = _get_current_atr(ticker)
+
+            if atr > 0:
+                # Use ATR-based SL
+                multiplier = (
+                    config.LEVERAGED_MODE.get("atr_sl_multiplier", 1.0) if is_leveraged
+                    else config.STOCK_MODE.get("atr_sl_multiplier", 1.5)
+                )
+                protective_sl = pos.avg_entry_price - (atr * multiplier)
+            else:
+                # Fallback: 3% below entry for stocks, 5% for leveraged
+                pct = 0.05 if is_leveraged else 0.03
+                protective_sl = pos.avg_entry_price * (1 - pct)
+
+            # Don't set SL above current price (would trigger immediately)
+            if protective_sl >= pos.current_price:
+                protective_sl = pos.current_price * 0.97  # 3% below current
+
+            if not self.dry_run:
+                # Cancel any existing orders first
+                self._cancel_all_orders(ticker)
+                result = self.client.place_stop_order(
+                    symbol=ticker,
+                    qty=int(pos.qty),
+                    stop_price=protective_sl,
+                    side="sell",
+                )
+                if result.success:
+                    logger.info(
+                        f"Placed protective SL on {ticker}: ${protective_sl:.2f} "
+                        f"(entry=${pos.avg_entry_price:.2f})"
+                    )
+                    return PositionUpdate(
+                        symbol=ticker,
+                        action_taken="trail_stop",
+                        old_sl=0.0,
+                        new_sl=protective_sl,
+                        pnl=pos.unrealized_pl,
+                        reason=f"Placed missing SL: ${protective_sl:.2f}",
+                    )
+            else:
+                return PositionUpdate(
+                    symbol=ticker,
+                    action_taken="trail_stop",
+                    old_sl=0.0,
+                    new_sl=protective_sl,
+                    pnl=pos.unrealized_pl,
+                    reason=f"[DRY RUN] Would place missing SL: ${protective_sl:.2f}",
+                )
+
+            # Use entry-based risk for R-multiple even if SL placement failed
+            risk = pos.avg_entry_price * 0.02  # fallback: 2%
+            sl_price = pos.avg_entry_price - risk
 
         if is_long:
             profit_distance = pos.current_price - pos.avg_entry_price
@@ -339,39 +393,63 @@ class AlpacaPositionManager:
     def _replace_stop_order(
         self, symbol: str, qty: int, new_stop_price: float, side: str
     ) -> bool:
-        """Cancel old stop orders and place a new one at the tighter level."""
+        """
+        Cancel ALL old orders on this symbol and place a new stop.
+        
+        We cancel everything (including TP legs) because:
+        1. Orphaned TP legs from brackets can cause unexpected fills
+        2. The trailing stop replaces the original risk management
+        3. Once we're trailing, the trade is profitable — we just want SL protection
+        """
         import time
 
-        # Cancel existing stop orders
+        # Cancel ALL existing orders on this symbol (SL, TP, bracket legs)
         orders = self.client.get_open_orders(symbol)
-        cancelled = False
-        for order in orders:
-            if order.get("stop_price", 0) > 0:
+        if orders:
+            for order in orders:
                 oid = order.get("id", "")
-                logger.info(f"Cancelling old stop order {oid} on {symbol}")
-                self.client.cancel_order(oid)
-                cancelled = True
+                if oid:
+                    logger.info(
+                        f"Cancelling order {oid} on {symbol} "
+                        f"(type={order.get('type', '?')}, side={order.get('side', '?')})"
+                    )
+                    self.client.cancel_order(oid)
+            time.sleep(1.5)  # Wait for cancellation to propagate
 
-        if cancelled:
-            time.sleep(1)  # Wait for cancellation to propagate
-
-        # Place new stop order
+        # Place new stop order at the tighter level
         result = self.client.place_stop_order(
             symbol=symbol, qty=qty, stop_price=new_stop_price, side=side
         )
         return result.success
+
+    def _cancel_all_orders(self, symbol: str):
+        """Cancel all open orders for a symbol."""
+        import time
+        orders = self.client.get_open_orders(symbol)
+        for order in orders:
+            oid = order.get("id", "")
+            if oid:
+                logger.info(f"Cancelling order {oid} on {symbol}")
+                self.client.cancel_order(oid)
+        if orders:
+            time.sleep(1)  # Wait for cancellation to propagate
 
     def _find_stop_loss_price(self, symbol: str) -> float:
         """Find the current stop-loss price from open orders for a symbol."""
         try:
             orders = self.client.get_open_orders(symbol)
             for order in orders:
-                # Stop orders have stop_price set
-                if order.get("stop_price", 0) > 0 and "stop" in order.get("type", "").lower():
-                    return order["stop_price"]
-                # Also check child orders of brackets
-                if order.get("stop_price", 0) > 0:
-                    return order["stop_price"]
+                stop_price = order.get("stop_price", 0)
+                if stop_price and stop_price > 0:
+                    order_type = order.get("type", "").lower()
+                    order_side = order.get("side", "").lower()
+                    # For long positions: SL is a SELL stop order
+                    if "stop" in order_type and "sell" in order_side:
+                        return float(stop_price)
+                    # Also accept any stop-priced order as SL
+                    if "stop" in order_type:
+                        return float(stop_price)
             return 0.0
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Error finding SL for {symbol}: {e}")
             return 0.0

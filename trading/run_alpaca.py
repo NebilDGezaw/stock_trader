@@ -136,6 +136,7 @@ def send_telegram(text: str, chat_id: str = None):
     Send a message via Telegram Bot API.
 
     Stocks go to PRIVATE chat (TELEGRAM_CHAT_ID), not the group.
+    Telegram limits messages to 4096 characters — truncate if needed.
     """
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     # Stock alerts → private chat (not group)
@@ -143,6 +144,10 @@ def send_telegram(text: str, chat_id: str = None):
     if not token or not chat_id:
         logger.warning("Telegram credentials not set — skipping notification")
         return
+
+    # Telegram max message length is 4096 chars
+    if len(text) > 4000:
+        text = text[:3950] + "\n\n... (truncated)"
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = json.dumps({
@@ -162,6 +167,22 @@ def send_telegram(text: str, chat_id: str = None):
                 logger.error(f"Telegram error: {result}")
     except Exception as e:
         logger.error(f"Telegram send failed: {e}")
+        # Retry without HTML parse mode (in case HTML entities broke it)
+        try:
+            import re
+            clean_text = re.sub(r'<[^>]+>', '', text)
+            payload = json.dumps({
+                "chat_id": chat_id,
+                "text": clean_text,
+                "disable_web_page_preview": True,
+            }).encode("utf-8")
+            req2 = urllib.request.Request(
+                url, data=payload, headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req2, timeout=15) as resp:
+                pass  # just send it
+        except Exception:
+            pass  # truly failed
 
 
 # ──────────────────────────────────────────────────────────

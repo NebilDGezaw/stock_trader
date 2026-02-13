@@ -452,14 +452,31 @@ class AlpacaExecutor:
                 f"Closing {inverse_of} first."
             )
             if not self.cfg.dry_run:
+                # Cancel all open orders on the inverse symbol first (bracket legs)
+                import time
+                inv_orders = self.client.get_open_orders(inverse_of)
+                for order in inv_orders:
+                    oid = order.get("id", "")
+                    if oid:
+                        self.client.cancel_order(oid)
+                if inv_orders:
+                    time.sleep(1)
+
                 close_result = self.client.close_position(inverse_of)
                 if close_result.success:
                     logger.info(f"Closed inverse position {inverse_of}")
-                    # Refresh positions after closing
+                    time.sleep(1)  # Wait for settlement
                     open_positions = self.client.get_open_positions()
                     existing_symbols = {p.symbol.upper() for p in open_positions}
                 else:
                     logger.error(f"Failed to close inverse {inverse_of}: {close_result.message}")
+                    return ExecutionRecord(
+                        ticker=ticker, action=action, qty=0,
+                        entry_price=setup.entry_price,
+                        sl=setup.stop_loss, tp=setup.take_profit,
+                        risk_reward=setup.risk_reward, executed=False,
+                        reason=f"Failed to close inverse pair {inverse_of}",
+                    )
 
         # ── Position Rotation: swap weak position for strong signal ──
         if len(open_positions) >= self.cfg.max_concurrent_positions:
@@ -476,10 +493,20 @@ class AlpacaExecutor:
                     f"(PnL {replaceable.unrealized_plpc*100:+.1f}%) "
                     f"to make room for {ticker} (score={setup.composite_score})"
                 )
+                # Cancel all open orders first (bracket SL/TP legs)
+                import time
+                rot_orders = self.client.get_open_orders(replaceable.symbol)
+                for order in rot_orders:
+                    oid = order.get("id", "")
+                    if oid:
+                        self.client.cancel_order(oid)
+                if rot_orders:
+                    time.sleep(1)
+
                 close_result = self.client.close_position(replaceable.symbol)
                 if close_result.success:
                     logger.info(f"Closed {replaceable.symbol} for rotation")
-                    # Refresh positions
+                    time.sleep(1)
                     open_positions = self.client.get_open_positions()
                     existing_symbols = {p.symbol.upper() for p in open_positions}
                 else:

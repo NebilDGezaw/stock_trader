@@ -233,6 +233,7 @@ LEVERAGED_MODE = {
 
     # Risk — more aggressive for leveraged products
     "risk_per_trade": 0.03,         # 3% per trade (was 2%)
+    "min_risk_reward": 1.5,         # lower R:R for leveraged (default was 2.0)
 }
 
 LEVERAGED_TICKERS = ["MSTU", "MSTR", "MSTZ", "TSLL", "TQQQ", "SOXL", "FNGU"]
