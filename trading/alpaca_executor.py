@@ -11,19 +11,30 @@ Crash Resilience — Sector Diversification:
     - During crashes: tech/semis/leveraged get HARDER entry bars
     - Position rotation naturally moves capital toward green sectors
 
-Safety:
-    - Never places an order without SL/TP (bracket orders)
-    - Category-based allocation caps (leveraged 25%, tech 20%, energy 15%, etc.)
-    - Enforces max daily loss limit
-    - Minimum R:R validation
-    - No duplicate symbol orders
-    - Buying power check with 2% buffer
-    - MSTU/MSTZ mutual exclusion (never hold both simultaneously)
-    - Market regime filter (SPY SMA) — pickier in bearish markets
-    - Sector momentum filter — pickier for sectors in downtrends
-    - Position rotation — swaps weak positions for strong new signals
-    - Dry-run mode for testing
-    - Halal compliance (long-only, no interest-based or haram sectors)
+Safety (16 pre-trade checks):
+    1.  Halal compliance (long-only, no short selling)
+    2.  VIX volatility filter — reduces risk in fearful markets, halts at panic
+    3.  Market regime filter (SPY SMA) — graduated bull→bear scoring
+    4.  Sector momentum filter — rotates capital toward green sectors
+    5.  Earnings blackout — skips stocks within ±3 days of earnings
+    6.  Volume filter — rejects signals on dead volume (< 60% of avg)
+    7.  Gap detection — skips stocks that gapped > 3% from prior close
+    8.  Minimum R:R validation
+    9.  Max concurrent positions (12)
+    10. MSTU/MSTZ mutual exclusion (never hold both simultaneously)
+    11. Position rotation — swaps weak positions for strong new signals
+    12. Daily loss circuit breaker (3%)
+    13. Weekly cumulative drawdown limit (5%)
+    14. Category allocation caps (9 sectors)
+    15. Per-ticker allocation caps + notional cap
+    16. Buying power check with 2% buffer
+
+Position Management (in alpaca_position_manager.py):
+    - Breakeven stop at 0.5R (eliminate losing trades after initial promise)
+    - Partial close at 1R (sell 50%, lock profit, let remainder ride)
+    - Trailing stop at 1R+ (ATR-based, locks in profits on runners)
+    - Signal reversal detection
+    - Time-of-day filter (skip first 30 min noise window)
 """
 
 from __future__ import annotations
@@ -342,6 +353,304 @@ def is_market_bullish(sma_period: int = 20) -> bool:
 
 
 # ──────────────────────────────────────────────────────────
+#  VIX Regime — volatility-based risk adjustment
+# ──────────────────────────────────────────────────────────
+# Since we're halal (long-only, no puts), high VIX = naked risk.
+# We can't hedge, so we MUST reduce exposure in fearful markets.
+
+_vix_cache: dict[str, dict] = {}   # date → {vix, score_adj, risk_mult, halt}
+
+def get_vix_regime() -> dict:
+    """
+    Fetch VIX and return risk adjustments based on market fear level.
+
+    Returns dict with:
+        - vix: current VIX value
+        - score_adj: add to min_score (higher = pickier)
+        - risk_mult: multiply risk by this (lower = smaller positions)
+        - halt: True if VIX > PANIC threshold (no new entries)
+
+    Thresholds (configurable in config.py):
+        VIX < 20    → calm      (no adjustment)
+        VIX 20-25   → elevated  (score +1, risk ×0.8)
+        VIX 25-30   → high      (score +2, risk ×0.6)
+        VIX 30-35   → extreme   (score +3, risk ×0.4)
+        VIX > 35    → PANIC     (HALT — no new entries at all)
+    """
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    if today in _vix_cache:
+        return _vix_cache[today]
+
+    default = {"vix": 18.0, "score_adj": 0, "risk_mult": 1.0, "halt": False}
+
+    try:
+        from data.fetcher import StockDataFetcher
+        df = StockDataFetcher("^VIX").fetch(period="1mo", interval="1d")
+        if df is None or len(df) < 2:
+            logger.warning("Cannot fetch VIX — defaulting to calm")
+            _vix_cache[today] = default
+            return default
+
+        vix = float(df["Close"].iloc[-1])
+
+        vix_elevated = getattr(config, "VIX_ELEVATED", 20)
+        vix_high = getattr(config, "VIX_HIGH", 25)
+        vix_extreme = getattr(config, "VIX_EXTREME", 30)
+        vix_panic = getattr(config, "VIX_PANIC", 35)
+
+        if vix >= vix_panic:
+            result = {"vix": vix, "score_adj": 4, "risk_mult": 0.3, "halt": True}
+        elif vix >= vix_extreme:
+            result = {"vix": vix, "score_adj": 3, "risk_mult": 0.4, "halt": False}
+        elif vix >= vix_high:
+            result = {"vix": vix, "score_adj": 2, "risk_mult": 0.6, "halt": False}
+        elif vix >= vix_elevated:
+            result = {"vix": vix, "score_adj": 1, "risk_mult": 0.8, "halt": False}
+        else:
+            result = {"vix": vix, "score_adj": 0, "risk_mult": 1.0, "halt": False}
+
+        logger.info(
+            f"VIX regime: {vix:.1f} → score_adj={result['score_adj']:+d}, "
+            f"risk_mult={result['risk_mult']:.1f}x"
+            f"{', HALT!' if result['halt'] else ''}"
+        )
+        _vix_cache[today] = result
+        return result
+    except Exception as e:
+        logger.warning(f"VIX fetch failed: {e} — defaulting to calm")
+        _vix_cache[today] = default
+        return default
+
+
+# ──────────────────────────────────────────────────────────
+#  Weekly Drawdown — cumulative loss protection
+# ──────────────────────────────────────────────────────────
+
+_weekly_pnl_cache: dict[str, float] = {}   # date → weekly_pnl_pct
+
+def check_weekly_drawdown(client) -> dict:
+    """
+    Estimate weekly cumulative P&L from Alpaca portfolio history.
+
+    Returns dict with:
+        - weekly_pnl_pct: estimated weekly P&L as % of equity
+        - halt: True if weekly loss exceeds threshold
+
+    Uses the Alpaca portfolio history API to get the last 5 trading days.
+    Falls back to (equity - balance) approximation if unavailable.
+    """
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    if today in _weekly_pnl_cache:
+        pnl_pct = _weekly_pnl_cache[today]
+        threshold = getattr(config, "WEEKLY_MAX_LOSS_PCT", 5.0)
+        return {"weekly_pnl_pct": pnl_pct, "halt": pnl_pct <= -threshold}
+
+    try:
+        # Try Alpaca portfolio history API (last 5 trading days)
+        from alpaca.trading.client import TradingClient
+        acct = client.get_account_info()
+        if acct is None:
+            return {"weekly_pnl_pct": 0.0, "halt": False}
+
+        # Use raw client to access portfolio history
+        raw_client = getattr(client, "_client", None)
+        if raw_client is not None:
+            try:
+                from alpaca.trading.requests import GetPortfolioHistoryRequest
+                req = GetPortfolioHistoryRequest(
+                    period="1W",
+                    timeframe="1D",
+                )
+                history = raw_client.get_portfolio_history(req)
+                if history and hasattr(history, 'equity') and len(history.equity) >= 2:
+                    start_equity = float(history.equity[0])
+                    end_equity = float(history.equity[-1])
+                    if start_equity > 0:
+                        pnl_pct = ((end_equity - start_equity) / start_equity) * 100
+                        _weekly_pnl_cache[today] = pnl_pct
+                        threshold = getattr(config, "WEEKLY_MAX_LOSS_PCT", 5.0)
+                        halt = pnl_pct <= -threshold
+                        logger.info(
+                            f"Weekly drawdown: {pnl_pct:+.2f}% "
+                            f"(${start_equity:,.0f} → ${end_equity:,.0f})"
+                            f"{' — WEEKLY HALT!' if halt else ''}"
+                        )
+                        return {"weekly_pnl_pct": pnl_pct, "halt": halt}
+            except Exception as e:
+                logger.debug(f"Portfolio history API failed: {e}")
+
+        # Fallback: not enough info for weekly — allow trading
+        _weekly_pnl_cache[today] = 0.0
+        return {"weekly_pnl_pct": 0.0, "halt": False}
+    except Exception as e:
+        logger.debug(f"Weekly drawdown check failed: {e}")
+        return {"weekly_pnl_pct": 0.0, "halt": False}
+
+
+# ──────────────────────────────────────────────────────────
+#  Volume Filter — reject signals on dead volume
+# ──────────────────────────────────────────────────────────
+
+def check_volume_filter(ticker: str) -> dict:
+    """
+    Check if the latest bar has adequate volume compared to 20-day average.
+
+    Returns dict with:
+        - ratio: latest_volume / avg_volume (1.0 = average)
+        - pass: True if ratio >= MIN_VOLUME_RATIO
+    """
+    try:
+        from data.fetcher import StockDataFetcher
+        df = StockDataFetcher(ticker).fetch(period="3mo", interval="1d")
+        if df is None or len(df) < 21 or "Volume" not in df.columns:
+            return {"ratio": 1.0, "pass": True}  # can't check → allow
+
+        avg_vol = df["Volume"].iloc[-21:-1].mean()  # 20-day avg (excl. today)
+        latest_vol = float(df["Volume"].iloc[-1])
+
+        if avg_vol <= 0:
+            return {"ratio": 1.0, "pass": True}
+
+        ratio = latest_vol / avg_vol
+        min_ratio = getattr(config, "MIN_VOLUME_RATIO", 0.6)
+        passed = ratio >= min_ratio
+
+        if not passed:
+            logger.info(
+                f"Volume filter: {ticker} vol={latest_vol:,.0f}, "
+                f"avg={avg_vol:,.0f}, ratio={ratio:.2f} < min {min_ratio} — REJECTED"
+            )
+
+        return {"ratio": ratio, "pass": passed}
+    except Exception:
+        return {"ratio": 1.0, "pass": True}  # error → allow
+
+
+# ──────────────────────────────────────────────────────────
+#  Gap Detection — avoid buying into exhaustion
+# ──────────────────────────────────────────────────────────
+
+def check_gap(ticker: str) -> dict:
+    """
+    Check if the stock has gapped significantly from its prior close.
+
+    Large gaps (>3%) mean:
+    - Buying: you're chasing exhaustion, likely to reverse
+    - Stop loss: gap-downs can skip your SL entirely
+
+    Returns dict with:
+        - gap_pct: gap as % of prior close (positive = gap up)
+        - pass: True if abs(gap) <= MAX_GAP_PCT
+    """
+    try:
+        from data.fetcher import StockDataFetcher
+        df = StockDataFetcher(ticker).fetch(period="1mo", interval="1d")
+        if df is None or len(df) < 2:
+            return {"gap_pct": 0.0, "pass": True}
+
+        prior_close = float(df["Close"].iloc[-2])
+        current_open = float(df["Open"].iloc[-1])
+
+        if prior_close <= 0:
+            return {"gap_pct": 0.0, "pass": True}
+
+        gap_pct = ((current_open - prior_close) / prior_close) * 100
+        max_gap = getattr(config, "MAX_GAP_PCT", 3.0)
+        passed = abs(gap_pct) <= max_gap
+
+        if not passed:
+            logger.info(
+                f"Gap filter: {ticker} gapped {gap_pct:+.1f}% "
+                f"(prior close=${prior_close:.2f}, open=${current_open:.2f}) "
+                f"— exceeds ±{max_gap}% limit — REJECTED"
+            )
+
+        return {"gap_pct": gap_pct, "pass": passed}
+    except Exception:
+        return {"gap_pct": 0.0, "pass": True}
+
+
+# ──────────────────────────────────────────────────────────
+#  Earnings Blackout — don't gamble through earnings reports
+# ──────────────────────────────────────────────────────────
+
+_earnings_cache: dict[str, dict] = {}  # ticker → {next_date, blackout}
+
+def check_earnings_blackout(ticker: str) -> dict:
+    """
+    Check if a stock has earnings within the blackout window (±3 days).
+
+    Technical analysis is meaningless through earnings — a stock can gap
+    15% in either direction regardless of any chart pattern.
+
+    Returns dict with:
+        - in_blackout: True if earnings are within ±EARNINGS_BLACKOUT_DAYS
+        - days_to_earnings: days until next earnings (negative = just passed)
+        - earnings_date: the date string, if found
+    """
+    if ticker in _earnings_cache:
+        return _earnings_cache[ticker]
+
+    default = {"in_blackout": False, "days_to_earnings": 999, "earnings_date": ""}
+    blackout_days = getattr(config, "EARNINGS_BLACKOUT_DAYS", 3)
+
+    try:
+        import yfinance as yf
+        from datetime import timedelta
+
+        tk = yf.Ticker(ticker)
+        # yfinance .earnings_dates returns upcoming and recent earnings
+        try:
+            earnings_dates = tk.earnings_dates
+        except Exception:
+            earnings_dates = None
+
+        if earnings_dates is None or earnings_dates.empty:
+            # Some tickers (ETFs, leveraged) don't have earnings
+            _earnings_cache[ticker] = default
+            return default
+
+        now = datetime.utcnow()
+        closest_days = 999
+        closest_date = ""
+
+        for dt in earnings_dates.index:
+            # earnings_dates index is a DatetimeIndex
+            try:
+                earnings_dt = dt.to_pydatetime()
+                if earnings_dt.tzinfo is not None:
+                    # Make comparable — strip timezone
+                    from datetime import timezone
+                    earnings_dt = earnings_dt.replace(tzinfo=None)
+                delta = (earnings_dt - now).days
+                if abs(delta) < abs(closest_days):
+                    closest_days = delta
+                    closest_date = earnings_dt.strftime("%Y-%m-%d")
+            except Exception:
+                continue
+
+        in_blackout = abs(closest_days) <= blackout_days
+
+        if in_blackout:
+            logger.info(
+                f"Earnings blackout: {ticker} has earnings on {closest_date} "
+                f"({closest_days:+d} days) — within ±{blackout_days} day window"
+            )
+
+        result = {
+            "in_blackout": in_blackout,
+            "days_to_earnings": closest_days,
+            "earnings_date": closest_date,
+        }
+        _earnings_cache[ticker] = result
+        return result
+    except Exception as e:
+        logger.debug(f"Earnings check failed for {ticker}: {e}")
+        _earnings_cache[ticker] = default
+        return default
+
+
+# ──────────────────────────────────────────────────────────
 #  Sector Momentum — rotate into green sectors during crashes
 # ──────────────────────────────────────────────────────────
 
@@ -624,18 +933,36 @@ class AlpacaExecutor:
                 reason="SELL signal skipped — no short selling (halal compliance)",
             )
 
-        # ── Safety Check 1b: GRADUATED market regime filter ─
-        #    Different market conditions require different conviction levels.
-        #    PLUS sector momentum adjustment: sectors trending down need
-        #    higher scores to enter, sectors trending up need lower scores.
+        # ── Safety Check 1b: VIX volatility filter ──────────
+        #    Since we're halal (long-only, no puts), high VIX = naked risk.
+        #    We can't hedge, so we MUST reduce exposure in fearful markets.
+        vix_regime = get_vix_regime()
+        if vix_regime["halt"]:
+            return ExecutionRecord(
+                ticker=ticker, action=action, qty=0,
+                entry_price=setup.entry_price,
+                sl=setup.stop_loss, tp=setup.take_profit,
+                risk_reward=setup.risk_reward, executed=False,
+                reason=f"VIX PANIC HALT: VIX={vix_regime['vix']:.1f} > "
+                       f"{getattr(config, 'VIX_PANIC', 35)} — no new entries",
+            )
+
+        # ── Safety Check 1c: GRADUATED market regime + sector + VIX ─
+        #    Combine SPY regime, sector momentum, AND VIX into one score.
         regime = get_market_regime()
         base_min_score = regime["min_score"]
         sector_adj = get_sector_score_adjustment(category, ticker=ticker)
-        min_score = max(2, base_min_score + sector_adj)  # never below 2
+        vix_adj = vix_regime["score_adj"]
+        min_score = max(2, base_min_score + sector_adj + vix_adj)  # never below 2
 
+        adjustments = []
         if sector_adj != 0:
+            adjustments.append(f"sector={sector_adj:+d}")
+        if vix_adj != 0:
+            adjustments.append(f"VIX={vix_adj:+d}")
+        if adjustments:
             logger.info(
-                f"Sector momentum: {category} adj={sector_adj:+d} "
+                f"Score adjustments for {ticker}: {', '.join(adjustments)} "
                 f"(base {base_min_score} → effective {min_score})"
             )
 
@@ -645,9 +972,49 @@ class AlpacaExecutor:
                 entry_price=setup.entry_price,
                 sl=setup.stop_loss, tp=setup.take_profit,
                 risk_reward=setup.risk_reward, executed=False,
-                reason=f"Market regime '{regime['regime']}' + sector momentum "
+                reason=f"Regime '{regime['regime']}' VIX={vix_regime['vix']:.0f} "
                        f"— score {setup.composite_score} < min {min_score} "
-                       f"(base={base_min_score}, sector_adj={sector_adj:+d})",
+                       f"(base={base_min_score}, sector={sector_adj:+d}, vix={vix_adj:+d})",
+            )
+
+        # ── Safety Check 1d: Earnings blackout ───────────
+        #    Technical analysis is meaningless through earnings.
+        earnings = check_earnings_blackout(ticker)
+        if earnings["in_blackout"]:
+            return ExecutionRecord(
+                ticker=ticker, action=action, qty=0,
+                entry_price=setup.entry_price,
+                sl=setup.stop_loss, tp=setup.take_profit,
+                risk_reward=setup.risk_reward, executed=False,
+                reason=f"Earnings blackout: {ticker} reports on "
+                       f"{earnings['earnings_date']} "
+                       f"({earnings['days_to_earnings']:+d} days)",
+            )
+
+        # ── Safety Check 1e: Volume filter ───────────────
+        #    Low volume signals are unreliable — no conviction behind the move.
+        vol_check = check_volume_filter(ticker)
+        if not vol_check["pass"]:
+            return ExecutionRecord(
+                ticker=ticker, action=action, qty=0,
+                entry_price=setup.entry_price,
+                sl=setup.stop_loss, tp=setup.take_profit,
+                risk_reward=setup.risk_reward, executed=False,
+                reason=f"Volume too low: {ticker} vol ratio={vol_check['ratio']:.2f} "
+                       f"< min {getattr(config, 'MIN_VOLUME_RATIO', 0.6)}",
+            )
+
+        # ── Safety Check 1f: Gap detection ───────────────
+        #    Large gaps = buying exhaustion or SL-skip risk.
+        gap_check = check_gap(ticker)
+        if not gap_check["pass"]:
+            return ExecutionRecord(
+                ticker=ticker, action=action, qty=0,
+                entry_price=setup.entry_price,
+                sl=setup.stop_loss, tp=setup.take_profit,
+                risk_reward=setup.risk_reward, executed=False,
+                reason=f"Gap too large: {ticker} gapped {gap_check['gap_pct']:+.1f}% "
+                       f"(max ±{getattr(config, 'MAX_GAP_PCT', 3.0)}%)",
             )
 
         # ── Safety Check 2: Minimum R:R ──────────────────
@@ -811,6 +1178,18 @@ class AlpacaExecutor:
                     reason=f"Daily loss limit hit ({daily_loss_pct:.1f}%)",
                 )
 
+        # ── Safety Check 5b: Weekly cumulative drawdown ──
+        weekly = check_weekly_drawdown(self.client)
+        if weekly["halt"]:
+            return ExecutionRecord(
+                ticker=ticker, action=action, qty=0,
+                entry_price=setup.entry_price,
+                sl=setup.stop_loss, tp=setup.take_profit,
+                risk_reward=setup.risk_reward, executed=False,
+                reason=f"Weekly drawdown limit hit ({weekly['weekly_pnl_pct']:.1f}% "
+                       f"< -{getattr(config, 'WEEKLY_MAX_LOSS_PCT', 5.0)}%)",
+            )
+
         # ── Safety Check 6: Category allocation cap ──────
         cat_exposure = _category_exposure(open_positions, acct.equity)
         cat_cap = CATEGORY_CAPS.get(category, 0.25)
@@ -861,8 +1240,8 @@ class AlpacaExecutor:
             else self.cfg.default_risk_pct
         )
 
-        # Apply market regime multiplier
-        risk_pct = base_risk_pct * regime["risk_multiplier"]
+        # Apply market regime AND VIX multipliers (compound)
+        risk_pct = base_risk_pct * regime["risk_multiplier"] * vix_regime["risk_mult"]
 
         # High-conviction bonus: STRONG_BUY with score >= 6 gets 1.5x risk
         if setup.action == TradeAction.STRONG_BUY and abs(setup.composite_score) >= 6:

@@ -239,6 +239,36 @@ LEVERAGED_MODE = {
 LEVERAGED_TICKERS = ["MSTU", "MSTR", "MSTZ", "TSLL", "TQQQ", "SOXL", "FNGU"]
 
 # ──────────────────────────────────────────────
+#  Professional Trading Filters
+# ──────────────────────────────────────────────
+# These are what separate a serious automated system from a hobby project.
+# Each filter addresses a specific blind spot in pure technical analysis.
+
+# VIX (Volatility Index) — market fear gauge
+# Since we're halal (long-only, no puts/hedging), high VIX = naked risk.
+VIX_ELEVATED = 20       # cautious: min_score +1, risk ×0.8
+VIX_HIGH = 25           # defensive: min_score +2, risk ×0.6
+VIX_EXTREME = 30        # near-halt: min_score +3, risk ×0.4
+VIX_PANIC = 35          # HALT all new entries
+
+# Weekly / monthly cumulative drawdown limits
+# Daily limit (MAX_DAILY_LOSS_PCT) catches single bad days.
+# These catch COMPOUNDING losses across multiple bad days.
+WEEKLY_MAX_LOSS_PCT = 5.0        # halt if weekly cumulative loss > 5%
+
+# Volume filter — reject signals on dead volume (low conviction)
+MIN_VOLUME_RATIO = 0.6           # require ≥ 60% of 20-day avg volume on signal bar
+
+# Gap detection — avoid buying into exhaustion gaps or gap-down SL skips
+MAX_GAP_PCT = 3.0                # skip entries where current price gapped > 3% from prior close
+
+# Earnings blackout — technical analysis is meaningless through earnings
+EARNINGS_BLACKOUT_DAYS = 3       # skip entries within ±3 days of earnings date
+
+# Time-of-day — first 30 min after open is noise from overnight orders clearing
+MARKET_OPEN_NOISE_MINUTES = 30   # avoid entries in first 30 min after 9:30 AM ET
+
+# ──────────────────────────────────────────────
 #  Crypto Momentum Mode
 # ──────────────────────────────────────────────
 CRYPTO_MODE = {

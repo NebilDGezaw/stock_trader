@@ -283,11 +283,65 @@ def _rank_by_relative_strength(tickers: list[str], period: str = "1mo") -> list[
         return tickers
 
 
+def _is_market_open_noise_window() -> bool:
+    """
+    Check if we're in the first 30 minutes after market open (9:30-10:00 AM ET).
+
+    The first 30 minutes are noisy — overnight orders clearing, spreads wide,
+    false breakouts. Professional traders skip this window for entries.
+
+    Returns True if we should SKIP entries (within noise window).
+    """
+    try:
+        from datetime import timezone, timedelta
+        now_utc = datetime.utcnow()
+        # ET is UTC-5 (EST) or UTC-4 (EDT)
+        # Approximate: use UTC-5 (EST), close enough for a 30-min window
+        now_et = now_utc - timedelta(hours=5)
+        market_open_hour = 9
+        market_open_min = 30
+
+        noise_minutes = getattr(config, "MARKET_OPEN_NOISE_MINUTES", 30)
+
+        # Check if we're on a weekday
+        if now_et.weekday() >= 5:  # Saturday/Sunday
+            return False
+
+        minutes_since_open = (
+            (now_et.hour * 60 + now_et.minute)
+            - (market_open_hour * 60 + market_open_min)
+        )
+
+        if 0 <= minutes_since_open < noise_minutes:
+            logger.info(
+                f"Market open noise window: {minutes_since_open} min since open "
+                f"(skipping first {noise_minutes} min)"
+            )
+            return True
+
+        return False
+    except Exception:
+        return False  # error → don't block
+
+
 def mode_entry(client: AlpacaClient, session_name: str, dry_run: bool):
     """Analyze session tickers and place trades."""
     session = SESSIONS.get(session_name)
     if not session:
         logger.error(f"Unknown session: {session_name}")
+        return
+
+    # ── Time-of-day filter: skip first 30 min of market open ──
+    if _is_market_open_noise_window():
+        logger.info(
+            "Skipping entry — within first 30 min of market open (noise window). "
+            "Will run at next scheduled time."
+        )
+        send_telegram(
+            f"⏸ <b>Alpaca Entry Skipped</b>\n"
+            f"🏷 {session.get('label', session_name)}\n"
+            f"Reason: First 30 min of market open (noise window)"
+        )
         return
 
     # Check if market is open

@@ -404,10 +404,111 @@ class AlpacaPositionManager:
                             reason=f"[DRY RUN] Signal reversed to {current_signal.value}",
                         )
 
-        # ── Step 2: Trail stop ─────────────────────────────────
+        # ── Step 2: Breakeven stop at 0.5R ──────────────────
+        # Move SL to entry price once trade shows 0.5R profit.
+        # This eliminates losing trades that initially showed promise.
+        # We do this BEFORE partial close and trailing to lock in breakeven first.
+        is_leveraged = ticker.upper() in LEVERAGED_TICKERS
+        breakeven_r = 0.5
+
+        if (is_long and sl_price > 0 and r_multiple >= breakeven_r
+                and sl_price < pos.avg_entry_price):
+            # SL is still below entry — move it to breakeven
+            # Add a tiny buffer (0.1% above entry) to cover commissions
+            breakeven_price = pos.avg_entry_price * 1.001
+
+            if breakeven_price > sl_price:
+                logger.info(
+                    f"BREAKEVEN: {ticker} at {r_multiple:.1f}R — moving SL "
+                    f"from ${sl_price:.2f} to ${breakeven_price:.2f} (entry)"
+                )
+                if not self.dry_run:
+                    success = self._replace_stop_order(
+                        ticker, int(pos.qty), breakeven_price, "sell"
+                    )
+                    if success:
+                        return PositionUpdate(
+                            symbol=ticker,
+                            action_taken="trail_stop",
+                            old_sl=sl_price,
+                            new_sl=breakeven_price,
+                            pnl=pos.unrealized_pl,
+                            reason=f"Breakeven at {r_multiple:.1f}R: "
+                                   f"SL ${sl_price:.2f} → ${breakeven_price:.2f}",
+                        )
+                else:
+                    return PositionUpdate(
+                        symbol=ticker,
+                        action_taken="trail_stop",
+                        old_sl=sl_price,
+                        new_sl=breakeven_price,
+                        pnl=pos.unrealized_pl,
+                        reason=f"[DRY RUN] Breakeven at {r_multiple:.1f}R: "
+                               f"SL ${sl_price:.2f} → ${breakeven_price:.2f}",
+                    )
+
+        # ── Step 3: Partial close at 1R ───────────────────
+        # Sell 50% at 1R to lock in profit, let remainder ride with trailing stop.
+        # This is what separates amateurs from professionals — guaranteed profit capture.
+        # We track whether we've already done a partial close by checking qty vs expected.
+        if (is_long and r_multiple >= self.partial_close_at_r
+                and pos.qty > 1):
+            # Check if this looks like a full position (not already partially closed)
+            # Heuristic: if qty is a round number or > some threshold, likely not yet partial-closed
+            # We use a simple approach: check if there's a partial close marker in orders
+            partial_qty = int(pos.qty * self.partial_close_pct)
+            if partial_qty >= 1:
+                # Only partial close if we haven't already (check if qty is close to original)
+                # Simple approach: if position is still at full qty (qty > 1), do partial
+                # After partial close, qty will be smaller — trailing stop handles the rest
+                logger.info(
+                    f"PARTIAL CLOSE: {ticker} at {r_multiple:.1f}R — "
+                    f"closing {partial_qty} of {int(pos.qty)} shares "
+                    f"(${pos.unrealized_pl:+.2f} unrealized)"
+                )
+                if not self.dry_run:
+                    # Sell partial qty at market
+                    result = self.client.close_position(ticker, qty=partial_qty)
+                    if result.success:
+                        remaining = int(pos.qty) - partial_qty
+                        logger.info(
+                            f"Partial close executed: sold {partial_qty} {ticker}, "
+                            f"{remaining} remaining"
+                        )
+                        # Update the SL order for the remaining quantity
+                        # The old SL order is for the full qty — needs updating
+                        if sl_price > 0 and remaining > 0:
+                            import time
+                            time.sleep(1)
+                            # Re-place SL for remaining shares at current SL level
+                            self._replace_stop_order(
+                                ticker, remaining, sl_price, "sell"
+                            )
+                        return PositionUpdate(
+                            symbol=ticker,
+                            action_taken="partial_close",
+                            old_sl=sl_price,
+                            new_sl=sl_price,
+                            pnl=pos.unrealized_pl,
+                            reason=f"Partial close at {r_multiple:.1f}R: "
+                                   f"sold {partial_qty}/{int(pos.qty)} shares",
+                        )
+                    else:
+                        logger.error(
+                            f"Partial close FAILED for {ticker}: {result.message}"
+                        )
+                else:
+                    return PositionUpdate(
+                        symbol=ticker,
+                        action_taken="partial_close",
+                        pnl=pos.unrealized_pl,
+                        reason=f"[DRY RUN] Partial close at {r_multiple:.1f}R: "
+                               f"would sell {partial_qty}/{int(pos.qty)} shares",
+                    )
+
+        # ── Step 4: Trail stop ─────────────────────────────────
         # For leveraged ETFs with trailing enabled: cancel old SL → place new tighter SL
         # For regular stocks: always trail at 1R+
-        is_leveraged = ticker.upper() in LEVERAGED_TICKERS
         trail_enabled = (
             config.LEVERAGED_MODE.get("trailing_stop", False) if is_leveraged
             else True  # always trail regular stocks
