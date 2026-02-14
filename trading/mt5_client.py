@@ -202,7 +202,7 @@ class MT5Client:
         # On ephemeral VMs (GitHub Actions), MT5 needs time to
         # download quotes from the broker.  We check a reference
         # symbol (EURUSD) and wait until its bid > 0.
-        self._warmup_quotes(warmup_symbols=["EURUSD", "XAUUSD"])
+        self._warmup_quotes(warmup_symbols=["EURUSD", "XAUUSD", "#BTCUSD"])
 
         return True
 
@@ -540,7 +540,17 @@ class MT5Client:
         # Close a BUY with a SELL and vice versa
         order_type = mt5.ORDER_TYPE_SELL if is_buy else mt5.ORDER_TYPE_BUY
         tick = mt5.symbol_info_tick(position.symbol)
-        price = tick.bid if is_buy else tick.ask
+        if tick is None or tick.bid <= 0 or tick.ask <= 0:
+            # Fallback: use the position's current price from the server
+            # This is critical — we MUST be able to close losing positions
+            # even if tick data is stale on ephemeral VMs
+            logger.warning(
+                f"Stale tick data for {position.symbol} during close — "
+                f"using position open_price as reference"
+            )
+            price = position.price_current if hasattr(position, 'price_current') and position.price_current > 0 else position.price_open
+        else:
+            price = tick.bid if is_buy else tick.ask
 
         # Detect filling mode
         sym_info = mt5.symbol_info(position.symbol)

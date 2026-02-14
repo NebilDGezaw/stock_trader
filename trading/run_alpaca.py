@@ -9,13 +9,16 @@ Modes:
     --mode verify    : Verify asset availability on Alpaca
 
 Sessions:
-    --session leveraged     : Leveraged ETFs (MSTU, MSTR, MSTZ, TSLL, TQQQ, SOXL, FNGU)
-    --session tech          : Mega Tech (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, AMD)
-    --session semis         : Semiconductors (AVGO, QCOM, ASML, MU)
-    --session healthcare    : Healthcare (UNH, ABBV, LLY, ISRG)
-    --session clean_energy  : Clean Energy & EV (ENPH, FSLR, RIVN, NIO)
-    --session consumer      : Consumer (COST, TGT)
-    --session stocks        : All non-leveraged stocks combined
+    --session leveraged        : Leveraged ETFs (MSTU, MSTR, MSTZ, TSLL, TQQQ, SOXL, FNGU)
+    --session tech             : Mega Tech (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, AMD)
+    --session semis            : Semiconductors (AVGO, QCOM, ASML, MU)
+    --session healthcare       : Healthcare (ABBV, LLY, ISRG, JNJ)
+    --session energy           : Energy — crash hedge (XOM, CVX, COP)
+    --session consumer_staples : Consumer Staples — defensive (PG, KO, PEP, CL)
+    --session industrials      : Industrials — real economy (CAT, DE, WM, UNP)
+    --session clean_energy     : Clean Energy (ENPH, FSLR)
+    --session consumer         : Consumer Discretionary (COST, TGT)
+    --session stocks           : All non-leveraged stocks combined
 
 Usage:
     python -m trading.run_alpaca --mode entry --session leveraged
@@ -61,7 +64,7 @@ logger = logging.getLogger("trading.alpaca_runner")
 # ──────────────────────────────────────────────────────────
 
 SESSIONS = {
-    # ── Leveraged ETFs (hourly scan, 30% portfolio cap) ──
+    # ── Leveraged ETFs (hourly scan, 25% portfolio cap) ──
     "leveraged": {
         "label": "⚡ Leveraged ETFs",
         "tickers": ["MSTU", "MSTR", "MSTZ", "TSLL", "TQQQ", "SOXL", "FNGU"],
@@ -69,7 +72,7 @@ SESSIONS = {
         "period": "3mo",
         "stock_mode": True,
     },
-    # ── Mega Tech (2h scan, 25% cap) ──
+    # ── Mega Tech (2h scan, 20% cap) ──
     "tech": {
         "label": "💻 Mega Tech",
         "tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AMD"],
@@ -77,7 +80,7 @@ SESSIONS = {
         "period": "6mo",
         "stock_mode": True,
     },
-    # ── Semiconductors (2h scan, 15% cap) ──
+    # ── Semiconductors (2h scan, 10% cap) ──
     "semis": {
         "label": "🔬 Semiconductors",
         "tickers": ["AVGO", "QCOM", "ASML", "MU"],
@@ -85,25 +88,54 @@ SESSIONS = {
         "period": "6mo",
         "stock_mode": True,
     },
-    # ── Healthcare (2h scan, 15% cap) ──
+    # ── Healthcare (2h scan, 10% cap) ──
     "healthcare": {
         "label": "🏥 Healthcare",
-        "tickers": ["UNH", "ABBV", "LLY", "ISRG"],
+        "tickers": ["ABBV", "LLY", "ISRG", "JNJ"],
         "interval": "1d",
         "period": "6mo",
         "stock_mode": True,
     },
-    # ── Clean Energy / EV (2h scan, 10% cap) ──
+    # ── Energy (2h scan, 15% cap) ── *** NEW: PRIMARY CRASH HEDGE ***
+    # Oil & gas — goes UP when tech goes DOWN.
+    # XOM +80% during 2022 tech crash. Halal (natural resources).
+    "energy": {
+        "label": "🛢️ Energy",
+        "tickers": ["XOM", "CVX", "COP"],
+        "interval": "1d",
+        "period": "6mo",
+        "stock_mode": True,
+    },
+    # ── Consumer Staples (2h scan, 10% cap) ── *** NEW: DEFENSIVE ***
+    # Ultra-low-beta, recession-proof. Halal (household goods, beverages).
+    "consumer_staples": {
+        "label": "🧴 Consumer Staples",
+        "tickers": ["PG", "KO", "PEP", "CL"],
+        "interval": "1d",
+        "period": "6mo",
+        "stock_mode": True,
+    },
+    # ── Industrials (2h scan, 10% cap) ── *** NEW: REAL ECONOMY ***
+    # Infrastructure, logistics, agriculture. Halal (machinery, railroads).
+    "industrials": {
+        "label": "🏗️ Industrials",
+        "tickers": ["CAT", "DE", "WM", "UNP"],
+        "interval": "1d",
+        "period": "6mo",
+        "stock_mode": True,
+    },
+    # ── Clean Energy (2h scan, 5% cap) ──
+    # Trimmed: dropped NIO/RIVN (speculative, 1% caps, no diversification value)
     "clean_energy": {
-        "label": "🌿 Clean Energy & EV",
-        "tickers": ["ENPH", "FSLR", "RIVN", "NIO"],
+        "label": "🌿 Clean Energy",
+        "tickers": ["ENPH", "FSLR"],
         "interval": "1d",
         "period": "6mo",
         "stock_mode": True,
     },
-    # ── Consumer Staples (2h scan, 5% cap) ──
+    # ── Consumer Discretionary (2h scan, 5% cap) ──
     "consumer": {
-        "label": "🛒 Consumer",
+        "label": "🛒 Consumer Discretionary",
         "tickers": ["COST", "TGT"],
         "interval": "1d",
         "period": "6mo",
@@ -112,12 +144,16 @@ SESSIONS = {
 }
 
 # Legacy alias so existing --session stocks still works
+# Includes ALL non-leveraged sessions for a combined scan
 SESSIONS["stocks"] = {
     "label": "📈 All Regular Stocks",
     "tickers": (
         SESSIONS["tech"]["tickers"]
         + SESSIONS["semis"]["tickers"]
         + SESSIONS["healthcare"]["tickers"]
+        + SESSIONS["energy"]["tickers"]
+        + SESSIONS["consumer_staples"]["tickers"]
+        + SESSIONS["industrials"]["tickers"]
         + SESSIONS["clean_energy"]["tickers"]
         + SESSIONS["consumer"]["tickers"]
     ),
@@ -265,7 +301,7 @@ def mode_entry(client: AlpacaClient, session_name: str, dry_run: bool):
     logger.info(f"Tickers (ranked): {', '.join(tickers)}")
 
     executor = AlpacaExecutor(client, AlpacaExecutorConfig(
-        max_concurrent_positions=10,
+        max_concurrent_positions=12,
         max_daily_loss_pct=config.MAX_DAILY_LOSS_PCT,
         default_risk_pct=config.RISK_PER_TRADE,
         leveraged_risk_pct=config.LEVERAGED_MODE.get("risk_per_trade", 0.02),
@@ -581,7 +617,8 @@ def main():
     parser.add_argument(
         "--session", default="leveraged",
         choices=list(SESSIONS.keys()),
-        help="Trading session (for entry mode): leveraged, tech, semis, healthcare, clean_energy, consumer, stocks (all)",
+        help="Trading session (for entry mode): leveraged, tech, semis, healthcare, "
+             "energy, consumer_staples, industrials, clean_energy, consumer, stocks (all)",
     )
     parser.add_argument(
         "--dry-run", action="store_true",

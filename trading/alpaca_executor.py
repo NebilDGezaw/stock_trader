@@ -4,18 +4,26 @@ Alpaca Trade Executor — bridges strategy analysis to Alpaca bracket orders.
 Takes a TradeSetup from any strategy, converts it to an Alpaca bracket order,
 calculates proper share sizing, and places it via the Alpaca client.
 
+Crash Resilience — Sector Diversification:
+    - 9 categories across growth + defensive + independent sectors
+    - Sector momentum detection (XLK, XLE, XLP, XLI, etc.)
+    - During crashes: energy/staples/industrials get EASIER entry bars
+    - During crashes: tech/semis/leveraged get HARDER entry bars
+    - Position rotation naturally moves capital toward green sectors
+
 Safety:
     - Never places an order without SL/TP (bracket orders)
-    - Category-based allocation caps (leveraged 30%, tech 25%, etc.)
-    - Per-ticker caps (NIO/RIVN capped at 1%)
+    - Category-based allocation caps (leveraged 25%, tech 20%, energy 15%, etc.)
     - Enforces max daily loss limit
     - Minimum R:R validation
     - No duplicate symbol orders
     - Buying power check with 2% buffer
     - MSTU/MSTZ mutual exclusion (never hold both simultaneously)
     - Market regime filter (SPY SMA) — pickier in bearish markets
+    - Sector momentum filter — pickier for sectors in downtrends
     - Position rotation — swaps weak positions for strong new signals
     - Dry-run mode for testing
+    - Halal compliance (long-only, no interest-based or haram sectors)
 """
 
 from __future__ import annotations
@@ -44,10 +52,27 @@ INVERSE_PAIRS = {
 # ──────────────────────────────────────────────────────────
 #  Portfolio Categories & Allocation Caps
 # ──────────────────────────────────────────────────────────
+#
+# DIVERSIFICATION RATIONALE (crash resilience):
+#   Tech + Semis + Clean Energy + Leveraged ≈ 55% cap (growth / momentum)
+#   Energy + Consumer Staples + Industrials  ≈ 35% cap (defensive / value)
+#   Healthcare + Consumer Discretionary      ≈ 15% cap (moderate correlation)
+#
+# During the 2022 tech crash:  XLK (tech) −28%, SOXL −70%, TQQQ −75%
+#   Meanwhile:  XLE (energy) +64%, XLP (staples) +0%, XLI (industrials) +−5%
+# Having defensive sectors means the system CAN find green stocks during crashes.
+#
+# ALL tickers are halal-compliant:
+#   ✓ No banks / insurance (interest-based revenue)
+#   ✓ No alcohol, tobacco, gambling, weapons manufacturers
+#   ✓ No conventional finance or debt-heavy entities
+#   ✓ Long-only (no short selling)
 
 # Every ticker belongs to exactly one category
 TICKER_CATEGORY = {
-    # Leveraged ETFs (30% cap)
+    # ── Leveraged ETFs (25% cap) ──
+    # High risk / high reward, short holding periods.
+    # Mostly tech-correlated — capped tighter to limit crash exposure.
     "MSTU":  "leveraged",
     "MSTR":  "leveraged",
     "MSTZ":  "leveraged",
@@ -56,7 +81,8 @@ TICKER_CATEGORY = {
     "SOXL":  "leveraged",
     "FNGU":  "leveraged",
 
-    # Mega Tech (25% cap)
+    # ── Mega Tech (20% cap) ──
+    # Core growth holdings — strong momentum in bull markets.
     "AAPL":  "tech",
     "MSFT":  "tech",
     "GOOGL": "tech",
@@ -66,44 +92,84 @@ TICKER_CATEGORY = {
     "TSLA":  "tech",
     "AMD":   "tech",
 
-    # Semiconductors (15% cap)
+    # ── Semiconductors (10% cap) ──
+    # Tech-adjacent but supply-chain driven.
     "AVGO":  "semis",
     "QCOM":  "semis",
     "ASML":  "semis",
     "MU":    "semis",
 
-    # Healthcare (15% cap)
-    "UNH":   "healthcare",
+    # ── Healthcare (10% cap) ──
+    # Low tech correlation, recession-resistant.
     "ABBV":  "healthcare",
     "LLY":   "healthcare",
     "ISRG":  "healthcare",
+    "JNJ":   "healthcare",
 
-    # Clean Energy / EV (10% cap)
+    # ── Energy (15% cap) ──  *** NEW — primary crash hedge ***
+    # Oil & gas — historically INVERSE to tech in sector rotations.
+    # XOM was +80% during the 2022 tech crash.  Halal (natural resources).
+    "XOM":   "energy",
+    "CVX":   "energy",
+    "COP":   "energy",
+
+    # ── Consumer Staples (10% cap) ──  *** NEW — defensive ***
+    # Ultra-low-beta, recession-proof.  Hold steady in any crash.
+    # Halal: household goods, beverages (non-alcoholic), personal care.
+    "PG":    "consumer_staples",
+    "KO":    "consumer_staples",
+    "PEP":   "consumer_staples",
+    "CL":    "consumer_staples",
+
+    # ── Industrials (10% cap) ──  *** NEW — real economy ***
+    # Infrastructure, logistics, agriculture.  Low tech correlation.
+    # Halal: heavy machinery, farming, waste collection, railroads.
+    "CAT":   "industrials",
+    "DE":    "industrials",
+    "WM":    "industrials",
+    "UNP":   "industrials",
+
+    # ── Clean Energy (5% cap) ──
+    # Growth/speculative — trimmed to 2 tickers (dropped NIO/RIVN).
     "ENPH":  "clean_energy",
     "FSLR":  "clean_energy",
-    "RIVN":  "clean_energy",
-    "NIO":   "clean_energy",
 
-    # Consumer (5% cap)
+    # ── Consumer Discretionary (5% cap) ──
+    # Retail — moderate correlation.
     "COST":  "consumer",
     "TGT":   "consumer",
 }
 
 # Maximum % of total equity allocated to each category
 CATEGORY_CAPS = {
-    "leveraged":    0.30,   # 30%
-    "tech":         0.25,   # 25%
-    "semis":        0.15,   # 15%
-    "healthcare":   0.15,   # 15%
-    "clean_energy": 0.10,   # 10%
-    "consumer":     0.05,   # 5%
+    "leveraged":        0.25,   # 25% (reduced from 30% — still aggressive)
+    "tech":             0.20,   # 20% (reduced from 25%)
+    "semis":            0.10,   # 10% (reduced from 15%)
+    "healthcare":       0.10,   # 10% (reduced from 15%)
+    "energy":           0.15,   # 15% *** NEW — primary crash hedge ***
+    "consumer_staples": 0.10,   # 10% *** NEW — defensive ***
+    "industrials":      0.10,   # 10% *** NEW — real economy ***
+    "clean_energy":     0.05,   # 5%  (reduced from 10%)
+    "consumer":         0.05,   # 5%
 }
 
 # Per-ticker allocation caps (overrides category default)
-# Speculative names get tighter limits
 TICKER_CAPS = {
-    "NIO":  0.01,   # max 1% of equity
-    "RIVN": 0.01,   # max 1% of equity
+    # None needed — all tickers are solid, no speculative micro-caps
+}
+
+# Sector ETF proxies — used for sector-level momentum detection
+# to determine which sectors are trending up/down for rotation
+SECTOR_ETFS = {
+    "tech":             "XLK",
+    "semis":            "SOXX",
+    "healthcare":       "XLV",
+    "energy":           "XLE",
+    "consumer_staples": "XLP",
+    "industrials":      "XLI",
+    "clean_energy":     "ICLN",
+    "consumer":         "XLY",
+    # leveraged doesn't have a sector ETF — uses tech (TQQQ tracks QQQ)
 }
 
 # Max single-ticker allocation (default: half of category cap)
@@ -119,7 +185,7 @@ LEVERAGED_TICKERS = {t for t, c in TICKER_CATEGORY.items() if c == "leveraged"}
 @dataclass
 class AlpacaExecutorConfig:
     """Safety limits and risk parameters for Alpaca stock trading."""
-    max_concurrent_positions: int = 10     # max total positions (up from 6)
+    max_concurrent_positions: int = 12     # max total positions (up from 10 — more sectors)
     max_daily_loss_pct: float = 3.0        # stop trading if daily loss > 3%
     default_risk_pct: float = 0.01         # 1% of equity per trade
     leveraged_risk_pct: float = 0.02       # 2% for leveraged ETFs
@@ -151,7 +217,11 @@ class ExecutionRecord:
 
 def _get_category(ticker: str) -> str:
     """Get the portfolio category for a ticker."""
-    return TICKER_CATEGORY.get(ticker.upper(), "tech")  # default to tech
+    cat = TICKER_CATEGORY.get(ticker.upper())
+    if cat is None:
+        logger.warning(f"Unknown ticker '{ticker}' — defaulting to 'other' category")
+        return "other"
+    return cat
 
 
 def _category_exposure(positions, equity: float) -> dict[str, float]:
@@ -260,6 +330,92 @@ def is_market_bullish(sma_period: int = 20) -> bool:
 
 
 # ──────────────────────────────────────────────────────────
+#  Sector Momentum — rotate into green sectors during crashes
+# ──────────────────────────────────────────────────────────
+
+_sector_momentum_cache: dict[str, dict] = {}   # date → {sector: momentum%}
+
+def get_sector_momentum(lookback: int = 20) -> dict[str, float]:
+    """
+    Compute recent momentum (%) for each sector using sector ETF proxies.
+
+    Returns dict like {"tech": −3.2, "energy": +5.1, "healthcare": +0.8, ...}
+    Positive = sector trending up, Negative = sector trending down.
+
+    Used by the executor to:
+      - Give a min_score BONUS to sectors with strong positive momentum
+      - Give a min_score PENALTY to sectors with negative momentum
+
+    This is what makes the system "smart" about sector rotation:
+    during a tech crash, energy/staples will have positive momentum,
+    making them EASIER to enter while tech becomes HARDER to enter.
+    """
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    if today in _sector_momentum_cache:
+        return _sector_momentum_cache[today]
+
+    momentum = {}
+    try:
+        from data.fetcher import StockDataFetcher
+        import time
+
+        for sector, etf in SECTOR_ETFS.items():
+            try:
+                df = StockDataFetcher(etf).fetch(period="3mo", interval="1d")
+                if df is not None and len(df) >= lookback + 1:
+                    lb = min(lookback, len(df) - 1)
+                    ret = (float(df["Close"].iloc[-1]) / float(df["Close"].iloc[-lb]) - 1) * 100
+                    momentum[sector] = ret
+                else:
+                    momentum[sector] = 0.0
+                time.sleep(0.3)  # rate limit yfinance
+            except Exception:
+                momentum[sector] = 0.0
+
+        logger.info(
+            "Sector momentum: " +
+            ", ".join(f"{s}={m:+.1f}%" for s, m in
+                      sorted(momentum.items(), key=lambda x: -x[1]))
+        )
+    except Exception as e:
+        logger.warning(f"Sector momentum check failed: {e}")
+
+    _sector_momentum_cache[today] = momentum
+    return momentum
+
+
+def get_sector_score_adjustment(category: str) -> int:
+    """
+    Returns min_score ADJUSTMENT for a sector based on its momentum.
+
+    Positive momentum (sector trending up)  → −1 to min_score (easier entry)
+    Flat momentum                           →  0 (no change)
+    Negative momentum (sector trending down) → +1 to +2 (harder entry)
+
+    This means during a tech crash with energy rallying:
+      tech min_score might go from 3 → 5 (harder to buy tech)
+      energy min_score might go from 3 → 2 (easier to buy energy)
+
+    The system naturally rotates capital toward green sectors.
+    """
+    momentum = get_sector_momentum()
+    mom = momentum.get(category, 0.0)
+
+    # Leveraged tracks tech
+    if category == "leveraged":
+        mom = momentum.get("tech", 0.0)
+
+    if mom > 5.0:
+        return -1   # strong sector — lower the bar
+    elif mom > 0.0:
+        return 0    # positive but not strong — no adjustment
+    elif mom > -3.0:
+        return 1    # mildly negative — slightly higher bar
+    else:
+        return 2    # sector in freefall — much higher bar
+
+
+# ──────────────────────────────────────────────────────────
 #  Position Rotation — swap weak positions for strong signals
 # ──────────────────────────────────────────────────────────
 
@@ -295,6 +451,10 @@ def find_replaceable_position(
 
         # Don't swap the inverse of what we're buying (would defeat purpose)
         if INVERSE_PAIRS.get(new_ticker.upper()) == sym:
+            continue
+
+        # Don't swap within the same category (preserve diversification)
+        if _get_category(sym) == new_category:
             continue
 
         pnl_pct = pos.unrealized_plpc  # fraction, not percent
@@ -448,17 +608,29 @@ class AlpacaExecutor:
             )
 
         # ── Safety Check 1b: GRADUATED market regime filter ─
-        #    Different market conditions require different conviction levels
+        #    Different market conditions require different conviction levels.
+        #    PLUS sector momentum adjustment: sectors trending down need
+        #    higher scores to enter, sectors trending up need lower scores.
         regime = get_market_regime()
-        min_score = regime["min_score"]
+        base_min_score = regime["min_score"]
+        sector_adj = get_sector_score_adjustment(category)
+        min_score = max(2, base_min_score + sector_adj)  # never below 2
+
+        if sector_adj != 0:
+            logger.info(
+                f"Sector momentum: {category} adj={sector_adj:+d} "
+                f"(base {base_min_score} → effective {min_score})"
+            )
+
         if abs(setup.composite_score) < min_score:
             return ExecutionRecord(
                 ticker=ticker, action=action, qty=0,
                 entry_price=setup.entry_price,
                 sl=setup.stop_loss, tp=setup.take_profit,
                 risk_reward=setup.risk_reward, executed=False,
-                reason=f"Market regime '{regime['regime']}' — score "
-                       f"{setup.composite_score} < min {min_score} required",
+                reason=f"Market regime '{regime['regime']}' + sector momentum "
+                       f"— score {setup.composite_score} < min {min_score} "
+                       f"(base={base_min_score}, sector_adj={sector_adj:+d})",
             )
 
         # ── Safety Check 2: Minimum R:R ──────────────────
@@ -606,7 +778,9 @@ class AlpacaExecutor:
             # Fallback: total unrealized (imperfect but better than nothing)
             daily_pnl = sum(p.unrealized_pl for p in open_positions)
         if acct.equity > 0 and daily_pnl < 0:
-            daily_loss_pct = abs(daily_pnl) / acct.equity * 100
+            # Use last_equity (start-of-day equity) as denominator for accuracy
+            denominator = acct.last_equity if acct.last_equity > 0 else acct.equity
+            daily_loss_pct = abs(daily_pnl) / denominator * 100
             if daily_loss_pct >= self.cfg.max_daily_loss_pct:
                 logger.warning(
                     f"DAILY LOSS BREAKER: {daily_loss_pct:.1f}% loss today "

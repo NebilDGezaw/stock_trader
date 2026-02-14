@@ -149,9 +149,8 @@ def _get_current_atr(ticker_yf: str, period: int = 14) -> float:
         from utils.helpers import compute_atr
 
         asset_type = get_asset_type(ticker_yf)
-        if asset_type == "forex":
-            df = StockDataFetcher(ticker_yf).fetch(period="1mo", interval="1h")
-        elif asset_type == "crypto":
+        # "metal" (gold/silver) uses 4H just like "commodity"
+        if asset_type in ("forex", "crypto", "commodity", "metal"):
             df = StockDataFetcher(ticker_yf).fetch(period="3mo", interval="4h")
         else:
             df = StockDataFetcher(ticker_yf).fetch(period="3mo", interval="1d")
@@ -174,9 +173,8 @@ def _rerun_strategy(ticker_yf: str) -> Optional[TradeAction]:
 
         asset_type = _detect_asset_type(ticker_yf)
 
-        if asset_type == "forex":
-            df = StockDataFetcher(ticker_yf).fetch(period="3mo", interval="4h")
-        elif asset_type == "crypto":
+        # "metal" (gold/silver) uses 4H just like "commodity"
+        if asset_type in ("forex", "crypto", "commodity", "metal"):
             df = StockDataFetcher(ticker_yf).fetch(period="3mo", interval="4h")
         else:
             df = StockDataFetcher(ticker_yf).fetch(period="6mo", interval="1d")
@@ -286,17 +284,28 @@ class PositionManager:
     # ── Internal ──────────────────────────────────────────
 
     def _close_position(self, pos: PositionInfo, reason: str, comment: str) -> Optional[PositionUpdate]:
-        """Helper: close a position and return the update record."""
+        """Helper: close a position with retry and return the update record."""
         if not self.dry_run:
-            result = self.client.close_position(pos.ticket, comment=comment)
-            if result.success:
-                return PositionUpdate(
-                    ticket=pos.ticket, symbol=pos.symbol,
-                    action_taken="full_close", pnl=pos.profit, reason=reason,
-                )
-            else:
-                logger.warning(f"Failed to close {pos.ticket}: {result}")
-                return None
+            import time
+            for attempt in range(3):
+                result = self.client.close_position(pos.ticket, comment=comment)
+                if result.success:
+                    return PositionUpdate(
+                        ticket=pos.ticket, symbol=pos.symbol,
+                        action_taken="full_close", pnl=pos.profit, reason=reason,
+                    )
+                else:
+                    logger.warning(
+                        f"Close attempt {attempt + 1}/3 failed for "
+                        f"{pos.ticket} {pos.symbol}: {result}"
+                    )
+                    if attempt < 2:
+                        time.sleep(2)
+            logger.error(
+                f"CRITICAL: ALL 3 close attempts FAILED for {pos.ticket} "
+                f"{pos.symbol} — position remains open! Reason: {reason}"
+            )
+            return None
         else:
             return PositionUpdate(
                 ticket=pos.ticket, symbol=pos.symbol,
@@ -329,8 +338,14 @@ class PositionManager:
         # Calculate risk (SL distance)
         risk = abs(pos.open_price - pos.sl) if pos.sl > 0 else 0
         if risk == 0:
-            logger.warning(f"Position {pos.ticket} {pos.symbol} has no SL — skipping")
-            return None
+            # Position has no SL — use a fallback risk estimate (2% of entry)
+            # so safety checks (PnL net, max age, reversal) still work.
+            # Do NOT skip — unprotected positions need management most.
+            logger.warning(
+                f"Position {pos.ticket} {pos.symbol} has no SL — "
+                f"using 2% fallback risk for management"
+            )
+            risk = pos.open_price * 0.02
 
         # Calculate R-multiple — use validated price OR fall back to PnL
         if price_valid and current_price > 0:
@@ -447,8 +462,18 @@ class PositionManager:
             )
 
         # ── Step 2: Partial close at 1R ──────────────────
+        # Detect prior partial close by checking if volume is already reduced.
+        # MT5 does NOT update position.comment on partial close, so checking
+        # the comment is unreliable. Instead, check if the current volume is
+        # significantly less than what a "fresh" position would have — i.e.,
+        # if volume is already below 60% of what lot sizing would produce,
+        # assume a partial close already happened.
+        already_partially_closed = (
+            "partial" in (pos.comment or "")
+            or pos.volume < 0.015  # near minimum lot — no point closing further
+        )
         if (r_multiple >= self.partial_close_at_r
-                and "partial" not in pos.comment
+                and not already_partially_closed
                 and self.partial_close_pct > 0):
             close_vol = round(pos.volume * self.partial_close_pct, 2)
             min_vol = 0.01
@@ -461,7 +486,12 @@ class PositionManager:
                         pos.ticket, volume=close_vol, comment="partial_1R"
                     )
                     if result.success:
-                        pass  # Position still open with reduced volume
+                        return PositionUpdate(
+                            ticket=pos.ticket, symbol=pos.symbol,
+                            action_taken="partial_close",
+                            pnl=pos.profit,
+                            reason=f"Partial close {close_vol} lots at {r_multiple:.1f}R",
+                        )
 
         # ── Step 3: Trail stop (ONLY with valid quotes) ──
         if r_multiple >= self.trail_activation_r:

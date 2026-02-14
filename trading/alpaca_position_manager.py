@@ -214,12 +214,19 @@ class AlpacaPositionManager:
                     )
                 else:
                     logger.error(f"Failed to close short {ticker}: {result.message}")
-            return PositionUpdate(
-                symbol=ticker,
-                action_taken="full_close",
-                pnl=pos.unrealized_pl,
-                reason=f"[DRY RUN] Short position closed (halal compliance)",
-            )
+                    return PositionUpdate(
+                        symbol=ticker,
+                        action_taken="no_change",
+                        pnl=pos.unrealized_pl,
+                        reason=f"FAILED to close short {ticker} (halal): {result.message}",
+                    )
+            else:
+                return PositionUpdate(
+                    symbol=ticker,
+                    action_taken="full_close",
+                    pnl=pos.unrealized_pl,
+                    reason=f"[DRY RUN] Short position closed (halal compliance)",
+                )
 
         # We need to find the current SL from the open stop-loss order
         sl_price = self._find_stop_loss_price(ticker)
@@ -293,6 +300,27 @@ class AlpacaPositionManager:
                         f"Current=${pos.current_price:.2f}, "
                         f"PnL=${pos.unrealized_pl:+.2f}"
                     )
+                    # Last resort: close the position entirely rather than leave it naked
+                    logger.warning(f"EMERGENCY: Closing naked position {ticker}")
+                    result = self.client.close_position(ticker)
+                    if result.success:
+                        return PositionUpdate(
+                            symbol=ticker,
+                            action_taken="full_close",
+                            pnl=pos.unrealized_pl,
+                            reason=f"EMERGENCY close — SL placement failed 3x, position was naked",
+                        )
+                    else:
+                        # Truly critical — nothing we can do
+                        logger.error(
+                            f"EMERGENCY CLOSE ALSO FAILED for {ticker}: {result.message}"
+                        )
+                        return PositionUpdate(
+                            symbol=ticker,
+                            action_taken="no_change",
+                            pnl=pos.unrealized_pl,
+                            reason=f"CRITICAL: Position NAKED — SL and close both failed",
+                        )
             else:
                 return PositionUpdate(
                     symbol=ticker,
@@ -352,6 +380,21 @@ class AlpacaPositionManager:
                             logger.error(
                                 f"CRITICAL: Cancelled orders on {ticker} but "
                                 f"failed to close position: {result.message}"
+                            )
+                            # Re-place emergency stop since we cancelled the bracket
+                            emergency_sl = pos.current_price * 0.95  # 5% below current
+                            self.client.place_stop_order(
+                                symbol=ticker, qty=int(pos.qty),
+                                stop_price=emergency_sl, side="sell",
+                            )
+                            logger.warning(
+                                f"Re-placed emergency SL on {ticker} at ${emergency_sl:.2f}"
+                            )
+                            return PositionUpdate(
+                                symbol=ticker,
+                                action_taken="no_change",
+                                pnl=pos.unrealized_pl,
+                                reason=f"Reversal close failed — re-placed emergency SL at ${emergency_sl:.2f}",
                             )
                     else:
                         return PositionUpdate(
@@ -461,19 +504,30 @@ class AlpacaPositionManager:
 
         logger.error(
             f"CRITICAL: ALL 3 trail SL attempts FAILED for {symbol}. "
-            f"Position may be NAKED after order cancellation!"
+            f"Position may be NAKED after order cancellation! "
+            f"Closing position as safety measure."
         )
+        # Emergency: close position rather than leave it naked
+        close_result = self.client.close_position(symbol)
+        if close_result.success:
+            logger.warning(f"EMERGENCY: Closed {symbol} after trail SL failure")
+        else:
+            logger.error(f"EMERGENCY CLOSE ALSO FAILED for {symbol}: {close_result.message}")
         return False
 
     def _cancel_all_orders(self, symbol: str):
-        """Cancel all open orders for a symbol."""
+        """Cancel all open orders for a symbol with retry."""
         import time
         orders = self.client.get_open_orders(symbol)
         for order in orders:
             oid = order.get("id", "")
             if oid:
                 logger.info(f"Cancelling order {oid} on {symbol}")
-                self.client.cancel_order(oid)
+                success = self.client.cancel_order(oid)
+                if not success:
+                    logger.warning(f"Cancel failed for order {oid} — retrying")
+                    time.sleep(0.5)
+                    self.client.cancel_order(oid)
         if orders:
             time.sleep(1)  # Wait for cancellation to propagate
 

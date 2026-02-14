@@ -28,6 +28,7 @@ from data.fetcher import StockDataFetcher
 from strategies.smc_strategy import SMCStrategy
 from strategies.leveraged_momentum import LeveragedMomentumStrategy
 from strategies.crypto_momentum import CryptoMomentumStrategy
+from strategies.commodity_strategy import CommodityStrategy
 from strategies.forex_ict import ForexICTStrategy
 from models.signals import TradeAction, MarketBias, SignalType
 from ui.charts import (
@@ -507,8 +508,7 @@ def run_analysis(df, ticker, stock_mode=False):
     elif asset_type == "forex":
         return ForexICTStrategy(df, ticker=ticker).run()
     elif asset_type == "commodity":
-        # Crypto momentum works great on gold/silver
-        return CryptoMomentumStrategy(df, ticker=ticker).run()
+        return CommodityStrategy(df, ticker=ticker).run()
     else:
         return SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
 

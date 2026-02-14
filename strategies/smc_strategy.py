@@ -57,9 +57,9 @@ class SMCStrategy:
 
     def run(self) -> "SMCStrategy":
         """Execute the full strategy pipeline."""
-        if self.stock_mode:
-            self._apply_stock_overrides()
         try:
+            if self.stock_mode:
+                self._apply_stock_overrides()
             self._run_sub_strategies()
             self._apply_confluence_filters()
             if self.stock_mode:

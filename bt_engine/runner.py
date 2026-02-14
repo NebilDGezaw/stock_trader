@@ -13,6 +13,7 @@ from bt_engine.engine import BacktestEngine, run_multi, comparison_table
 from strategies.leveraged_momentum import LeveragedMomentumStrategy
 from strategies.crypto_momentum import CryptoMomentumStrategy
 from strategies.forex_ict import ForexICTStrategy
+from strategies.commodity_strategy import CommodityStrategy
 
 
 def main():
@@ -27,9 +28,11 @@ def main():
     parser.add_argument("--leveraged", action="store_true",
                         help="Use LeveragedMomentumStrategy instead of SMC")
     parser.add_argument("--forex", action="store_true",
-                        help="Use ForexICTStrategy with 1h candles and kill zones")
+                        help="Use ForexICTStrategy with 4h candles")
     parser.add_argument("--crypto", action="store_true",
                         help="Use CryptoMomentumStrategy for crypto assets")
+    parser.add_argument("--commodity", action="store_true",
+                        help="Use CommodityStrategy for gold/silver")
 
     args = parser.parse_args()
 
@@ -37,15 +40,25 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    if args.crypto:
+    if args.commodity:
+        strategy_class = CommodityStrategy
+        mode_label = "Commodity Mean-Reversion"
+        if args.interval == "1d":
+            args.interval = "4h"
+        if args.window == 120:
+            args.window = 60
+    elif args.crypto:
         strategy_class = CryptoMomentumStrategy
         mode_label = "Crypto Momentum"
+        if args.interval == "1d":
+            args.interval = "4h"
+        if args.window == 120:
+            args.window = 60
     elif args.forex:
         strategy_class = ForexICTStrategy
-        mode_label = "Forex ICT"
-        # Default to 1h interval and smaller window for forex mode
+        mode_label = "Forex Trend-Continuation"
         if args.interval == "1d":
-            args.interval = "1h"
+            args.interval = "4h"
         if args.window == 120:
             args.window = 60
     elif args.leveraged:

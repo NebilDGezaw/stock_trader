@@ -31,6 +31,7 @@ from strategies.smc_strategy import SMCStrategy
 from strategies.leveraged_momentum import LeveragedMomentumStrategy
 from strategies.crypto_momentum import CryptoMomentumStrategy
 from strategies.forex_ict import ForexICTStrategy
+from strategies.commodity_strategy import CommodityStrategy
 from models.signals import TradeAction, MarketBias
 
 # Auto-detect asset class from ticker
@@ -106,10 +107,16 @@ def analyze_ticker(ticker: str, period: str = "6mo", interval: str = "1d",
     try:
         strat_type = detect_strategy(ticker, leveraged, crypto, forex)
 
-        # Override interval for forex (1h is optimal)
-        if strat_type == "forex" and interval == "1d":
-            interval = "1h"
-            period = "1mo"  # 1h data is limited
+        # Override interval for forex/crypto/commodity (4h strategies)
+        if strat_type == "forex":
+            interval = "4h"
+            period = "3mo"
+        elif strat_type == "crypto":
+            interval = "4h"
+            period = "3mo"
+        elif strat_type == "commodity":
+            interval = "4h"
+            period = "3mo"
 
         df = StockDataFetcher(ticker).fetch(period=period, interval=interval)
 
@@ -120,7 +127,7 @@ def analyze_ticker(ticker: str, period: str = "6mo", interval: str = "1d",
         elif strat_type == "forex":
             strategy = ForexICTStrategy(df, ticker=ticker).run()
         elif strat_type == "commodity":
-            strategy = CryptoMomentumStrategy(df, ticker=ticker).run()
+            strategy = CommodityStrategy(df, ticker=ticker).run()
         else:
             strategy = SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
 

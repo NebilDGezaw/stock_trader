@@ -141,6 +141,9 @@ def calculate_lot_size(
     if max_risk_amount > 0:
         risk_amount = min(risk_amount, max_risk_amount)
     contract_size = symbol_info.get("trade_contract_size", 100000)
+    if contract_size <= 0:
+        logger.error(f"Invalid contract_size={contract_size} — cannot size position")
+        return 0.0
 
     # For forex: contract_size is typically 100,000 (standard lot)
     # For metals: contract_size is typically 100 (oz of gold)
@@ -161,6 +164,8 @@ def calculate_lot_size(
     vol_min = symbol_info.get("volume_min", 0.01)
     vol_max = symbol_info.get("volume_max", 100.0)
     vol_step = symbol_info.get("volume_step", 0.01)
+    if vol_step <= 0:
+        vol_step = 0.01
 
     # Round to step
     lot_size = max(vol_min, min(vol_max, round(lot_size / vol_step) * vol_step))
@@ -351,10 +356,16 @@ class TradeExecutor:
 
         # Determine risk per trade
         asset_type = get_asset_type(ticker)
-        if asset_type == "crypto":
+        # Normalize "metal" → "commodity" for risk lookup (gold/silver use commodity strategy)
+        risk_asset_type = "commodity" if asset_type == "metal" else asset_type
+        if risk_asset_type == "crypto":
             risk_pct = config.CRYPTO_MODE.get("risk_per_trade", self.cfg.default_risk_pct)
-        elif asset_type == "forex":
+        elif risk_asset_type == "forex":
             risk_pct = config.FOREX_MODE.get("risk_per_trade", self.cfg.default_risk_pct)
+        elif risk_asset_type == "commodity":
+            # CommodityStrategy uses 0.5% risk — honour it at execution level
+            from strategies.commodity_strategy import COMMODITY_CONFIG
+            risk_pct = COMMODITY_CONFIG.get("risk_per_trade", 0.005)
         else:
             risk_pct = self.cfg.default_risk_pct
 
@@ -389,6 +400,17 @@ class TradeExecutor:
                 sl=setup.stop_loss, tp=setup.take_profit,
                 risk_reward=setup.risk_reward, executed=False,
                 reason="DRY RUN — order not placed",
+            )
+
+        # ── Validate SL/TP before placing order ────────
+        # NEVER place an order without stop loss and take profit
+        if setup.stop_loss <= 0 or setup.take_profit <= 0:
+            return ExecutionRecord(
+                ticker=ticker, mt5_symbol=mt5_sym, action=action,
+                volume=volume, entry_price=setup.entry_price,
+                sl=setup.stop_loss, tp=setup.take_profit,
+                risk_reward=setup.risk_reward, executed=False,
+                reason=f"SL ({setup.stop_loss}) or TP ({setup.take_profit}) is zero/negative — refusing order",
             )
 
         # ── Place the order ──────────────────────────────
