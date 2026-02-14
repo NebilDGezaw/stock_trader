@@ -103,6 +103,31 @@ class PortfolioReport:
     market_regime: str = ""
     vix_level: float = 0.0
 
+    # ── Goal Tracking ──
+    weekly_target_pct: float = 0.0       # target (1-2%)
+    weekly_actual_pct: float = 0.0       # what we actually got
+    on_track: bool = False               # meeting target?
+    weeks_on_target: int = 0             # of the last N weeks, how many hit target
+    weeks_analyzed: int = 0
+
+    # ── Week-in-Review Attribution ──
+    week_attribution: dict = field(default_factory=dict)
+    #   {
+    #     "verdict": "MARKET_DRIVEN" | "STRATEGY_FAILURE" | "BAD_LUCK" | "ON_TRACK",
+    #     "market_return_pct": float,      # SPY/BTC return this week
+    #     "portfolio_return_pct": float,    # our return this week
+    #     "alpha": float,                  # portfolio - benchmark
+    #     "explanation": str,              # human-readable reason
+    #     "best_trade": {...},
+    #     "worst_trade": {...},
+    #     "win_rate_this_week": float,
+    #     "trades_this_week": int,
+    #   }
+
+    # ── Crypto Fear & Greed ──
+    fear_greed_index: int = 0
+    fear_greed_label: str = ""
+
 
 # ══════════════════════════════════════════════════════════
 #  Main Analyzer
@@ -209,7 +234,16 @@ class PortfolioAnalyzer:
         # ── Step 12: Market context ──
         self._add_market_context(report)
 
-        # ── Step 13: Generate suggestions ──
+        # ── Step 13: Goal tracking (1-2% weekly target) ──
+        self._track_goals(report, trades_df, snapshots_df)
+
+        # ── Step 14: Week-in-review attribution ──
+        self._week_attribution(report, trades_df)
+
+        # ── Step 15: Crypto Fear & Greed ──
+        self._fetch_fear_greed(report)
+
+        # ── Step 16: Generate suggestions ──
         self._generate_suggestions(report)
 
         return report
@@ -495,7 +529,238 @@ class PortfolioAnalyzer:
             logger.debug(f"Market context failed: {e}")
 
     # ──────────────────────────────────────────────────────
-    #  Step 13: Suggestions
+    #  Step 13: Goal Tracking
+    # ──────────────────────────────────────────────────────
+
+    def _track_goals(self, report, trades_df, snapshots_df):
+        """
+        Track progress toward the 1-2% weekly profit target.
+        Uses equity snapshots to compute actual weekly returns.
+        """
+        # System-specific targets
+        if self.system == "alpaca":
+            report.weekly_target_pct = 1.5  # aiming for 1-2%, midpoint
+        else:
+            report.weekly_target_pct = 1.0  # more conservative for forex/crypto
+
+        if snapshots_df.empty or "equity" not in snapshots_df.columns:
+            return
+
+        snaps = snapshots_df.copy()
+        snaps["timestamp"] = pd.to_datetime(snaps["timestamp"], errors="coerce")
+        snaps = snaps.dropna(subset=["timestamp"]).sort_values("timestamp")
+
+        if len(snaps) < 2:
+            return
+
+        # Current week return
+        now = datetime.utcnow()
+        week_start = now - timedelta(days=now.weekday())  # Monday
+        week_snaps = snaps[snaps["timestamp"] >= week_start.isoformat()]
+
+        if not week_snaps.empty:
+            start_eq = snaps.iloc[-min(len(snaps), 5)]["equity"]  # ~week ago
+            end_eq = snaps.iloc[-1]["equity"]
+            if start_eq > 0:
+                report.weekly_actual_pct = (end_eq - start_eq) / start_eq * 100
+                report.on_track = report.weekly_actual_pct >= report.weekly_target_pct
+
+        # Historical weekly performance
+        snaps["week"] = snaps["timestamp"].dt.isocalendar().week
+        snaps["year"] = snaps["timestamp"].dt.year
+        weekly = snaps.groupby(["year", "week"]).agg(
+            start_equity=("equity", "first"),
+            end_equity=("equity", "last"),
+        )
+        weekly["return_pct"] = (weekly["end_equity"] - weekly["start_equity"]) / weekly["start_equity"] * 100
+
+        report.weeks_analyzed = len(weekly)
+        report.weeks_on_target = int((weekly["return_pct"] >= report.weekly_target_pct).sum())
+
+    # ──────────────────────────────────────────────────────
+    #  Step 14: Week-in-Review Attribution
+    # ──────────────────────────────────────────────────────
+
+    def _week_attribution(self, report, trades_df):
+        """
+        Determine WHY this week was positive or negative.
+
+        Attribution categories:
+          MARKET_DRIVEN  — market was red/green, our result tracks the benchmark
+          STRATEGY_WIN   — we outperformed the market (positive alpha)
+          STRATEGY_FAIL  — we underperformed the market (negative alpha)
+          BAD_LUCK       — strategy is sound but random variance hurt us
+          NO_TRADES      — not enough trades to judge
+        """
+        if trades_df.empty or "timestamp" not in trades_df.columns:
+            return
+
+        now = datetime.utcnow()
+        week_ago = now - timedelta(days=7)
+        week_trades = trades_df[trades_df["timestamp"] >= week_ago]
+
+        if len(week_trades) < 2:
+            report.week_attribution = {
+                "verdict": "NO_TRADES",
+                "explanation": f"Only {len(week_trades)} trade(s) this week — not enough data to judge.",
+                "trades_this_week": len(week_trades),
+            }
+            return
+
+        # Portfolio metrics this week
+        week_pnl = float(week_trades["pnl"].sum())
+        week_wr = float((week_trades["pnl"] > 0).mean())
+        n_trades = len(week_trades)
+        avg_r = float(week_trades["r_multiple"].mean()) if "r_multiple" in week_trades.columns else 0
+        best_trade = week_trades.loc[week_trades["pnl"].idxmax()]
+        worst_trade = week_trades.loc[week_trades["pnl"].idxmin()]
+
+        # Get benchmark return (SPY for stocks, BTC for HFM)
+        benchmark_return = 0.0
+        benchmark_name = "SPY" if self.system == "alpaca" else "BTC"
+        try:
+            from data.fetcher import StockDataFetcher
+            ticker = "SPY" if self.system == "alpaca" else "BTC-USD"
+            df = StockDataFetcher(ticker).fetch(period="5d", interval="1d")
+            if df is not None and len(df) >= 2:
+                benchmark_return = float(
+                    (df["Close"].iloc[-1] - df["Close"].iloc[0]) / df["Close"].iloc[0] * 100
+                )
+        except Exception:
+            pass
+
+        portfolio_return = report.weekly_actual_pct if report.weekly_actual_pct != 0 else (
+            week_pnl / report.current_equity * 100 if report.current_equity > 0 else 0
+        )
+        alpha = portfolio_return - benchmark_return
+
+        # ── Determine verdict ──
+        if n_trades < 3:
+            verdict = "LOW_ACTIVITY"
+            explanation = (
+                f"Only {n_trades} trades executed. The system may be too selective "
+                f"or market conditions didn't generate enough signals. "
+                f"This limits profit potential."
+            )
+        elif portfolio_return >= report.weekly_target_pct:
+            verdict = "ON_TRACK"
+            explanation = (
+                f"Target met! Portfolio returned {portfolio_return:+.1f}% "
+                f"(target: {report.weekly_target_pct:.1f}%). "
+                f"{benchmark_name} returned {benchmark_return:+.1f}%, "
+                f"alpha = {alpha:+.1f}%."
+            )
+        elif benchmark_return < -1.0 and portfolio_return < 0:
+            # Market was red AND we lost money
+            if alpha > 0:
+                verdict = "MARKET_DRIVEN"
+                explanation = (
+                    f"Market was broadly red ({benchmark_name} {benchmark_return:+.1f}%). "
+                    f"We lost {portfolio_return:+.1f}% but actually outperformed the market "
+                    f"by {alpha:+.1f}%. This is a market-driven loss, NOT a strategy failure. "
+                    f"The long-only constraint (halal compliance) means we can't profit "
+                    f"in down markets."
+                )
+            else:
+                verdict = "STRATEGY_FAIL"
+                explanation = (
+                    f"Market was red ({benchmark_name} {benchmark_return:+.1f}%) "
+                    f"and we underperformed it by {alpha:.1f}%. "
+                    f"Portfolio: {portfolio_return:+.1f}%. This suggests strategy issues "
+                    f"beyond just market direction — check entry quality and stop losses."
+                )
+        elif benchmark_return > 1.0 and portfolio_return < 0:
+            # Market was green but we lost money — clear strategy failure
+            verdict = "STRATEGY_FAIL"
+            explanation = (
+                f"Market was GREEN ({benchmark_name} {benchmark_return:+.1f}%) "
+                f"but we LOST money ({portfolio_return:+.1f}%). "
+                f"Alpha: {alpha:+.1f}%. This is a clear strategy issue. "
+                f"Check: Are entries timed poorly? Are stops too tight? "
+                f"Are we picking the wrong tickers?"
+            )
+        elif week_wr >= 0.45 and avg_r < 0:
+            # Winning often but losers are bigger
+            verdict = "RISK_MANAGEMENT"
+            explanation = (
+                f"Win rate is decent ({week_wr:.0%}) but avg R-multiple is negative "
+                f"({avg_r:+.2f}R). Losers are larger than winners. "
+                f"Either widen take-profit targets or tighten stop losses."
+            )
+        elif week_wr < 0.35:
+            # Low win rate
+            verdict = "POOR_ENTRIES"
+            explanation = (
+                f"Win rate this week was only {week_wr:.0%} ({n_trades} trades). "
+                f"Most entries failed. Consider raising the minimum composite "
+                f"score threshold or waiting for stronger signals."
+            )
+        elif abs(portfolio_return) < 0.5 and n_trades > 5:
+            # Lots of trades, no progress
+            verdict = "CHURNING"
+            explanation = (
+                f"{n_trades} trades but only {portfolio_return:+.1f}% return. "
+                f"Excessive trading is eating into profits via slippage and "
+                f"opportunity cost. Consider reducing trade frequency."
+            )
+        else:
+            # Mild negative, could be random
+            verdict = "BAD_LUCK"
+            explanation = (
+                f"Portfolio returned {portfolio_return:+.1f}% vs "
+                f"{benchmark_name} {benchmark_return:+.1f}%. "
+                f"Win rate ({week_wr:.0%}) and R-multiple ({avg_r:+.2f}R) suggest "
+                f"normal variance. Strategy fundamentals appear intact — "
+                f"this looks like random noise, not a systemic issue."
+            )
+
+        report.week_attribution = {
+            "verdict": verdict,
+            "market_return_pct": round(benchmark_return, 2),
+            "portfolio_return_pct": round(portfolio_return, 2),
+            "alpha": round(alpha, 2),
+            "explanation": explanation,
+            "benchmark": benchmark_name,
+            "trades_this_week": n_trades,
+            "win_rate_this_week": round(week_wr * 100, 1),
+            "avg_r_this_week": round(avg_r, 2),
+            "best_trade": {
+                "ticker": str(best_trade.get("ticker", "")),
+                "pnl": round(float(best_trade.get("pnl", 0)), 2),
+            },
+            "worst_trade": {
+                "ticker": str(worst_trade.get("ticker", "")),
+                "pnl": round(float(worst_trade.get("pnl", 0)), 2),
+            },
+        }
+
+    # ──────────────────────────────────────────────────────
+    #  Step 15: Crypto Fear & Greed Index
+    # ──────────────────────────────────────────────────────
+
+    def _fetch_fear_greed(self, report):
+        """Fetch the Crypto Fear & Greed Index (free, no API key)."""
+        if self.system != "hfm":
+            return  # Only relevant for crypto/forex system
+        try:
+            import urllib.request
+            import json
+            req = urllib.request.Request(
+                "https://api.alternative.me/fng/?limit=1",
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+                if data.get("data"):
+                    fng = data["data"][0]
+                    report.fear_greed_index = int(fng.get("value", 0))
+                    report.fear_greed_label = fng.get("value_classification", "")
+                    logger.info(f"Crypto Fear & Greed: {report.fear_greed_index} ({report.fear_greed_label})")
+        except Exception as e:
+            logger.debug(f"Fear & Greed fetch failed: {e}")
+
+    # ──────────────────────────────────────────────────────
+    #  Step 16: Suggestions
     # ──────────────────────────────────────────────────────
 
     def _generate_suggestions(self, report):
@@ -580,6 +845,62 @@ class PortfolioAnalyzer:
                 f"Widen stop losses by 20-30% and reduce position sizes "
                 f"to account for increased whipsaw risk."
             )
+
+        # ── Goal-specific suggestions ──
+        if report.weeks_analyzed > 0:
+            hit_rate = report.weeks_on_target / report.weeks_analyzed
+            if hit_rate < 0.30:
+                suggestions.append(
+                    f"GOAL: Only {report.weeks_on_target}/{report.weeks_analyzed} weeks "
+                    f"hit the {report.weekly_target_pct:.1f}% target ({hit_rate:.0%}). "
+                    f"Strategy needs fundamental changes to be viable at this target."
+                )
+            elif hit_rate < 0.60:
+                suggestions.append(
+                    f"GOAL: {report.weeks_on_target}/{report.weeks_analyzed} weeks "
+                    f"hit target ({hit_rate:.0%}). Getting closer but not consistent. "
+                    f"Focus on reducing losing weeks rather than maximizing winning weeks."
+                )
+
+        # ── Week attribution suggestions ──
+        attr = report.week_attribution
+        if attr:
+            v = attr.get("verdict", "")
+            if v == "STRATEGY_FAIL":
+                suggestions.insert(0,
+                    f"THIS WEEK: {attr['explanation']}"
+                )
+            elif v == "MARKET_DRIVEN":
+                suggestions.insert(0,
+                    f"THIS WEEK: {attr['explanation']}"
+                )
+            elif v == "POOR_ENTRIES":
+                suggestions.insert(0,
+                    f"THIS WEEK: {attr['explanation']}"
+                )
+            elif v == "RISK_MANAGEMENT":
+                suggestions.insert(0,
+                    f"THIS WEEK: {attr['explanation']}"
+                )
+            elif v == "LOW_ACTIVITY":
+                suggestions.insert(0,
+                    f"THIS WEEK: {attr['explanation']}"
+                )
+
+        # ── Fear & Greed based suggestions ──
+        if report.fear_greed_index > 0:
+            if report.fear_greed_index >= 75:
+                suggestions.append(
+                    f"CRYPTO SENTIMENT: Fear & Greed at {report.fear_greed_index} "
+                    f"(Extreme Greed). Market is euphoric — be cautious with new "
+                    f"crypto entries. Consider tightening trailing stops on winners."
+                )
+            elif report.fear_greed_index <= 25:
+                suggestions.append(
+                    f"CRYPTO SENTIMENT: Fear & Greed at {report.fear_greed_index} "
+                    f"(Extreme Fear). Historically a good buying opportunity. "
+                    f"Consider being more aggressive with crypto entries."
+                )
 
         report.suggestions = suggestions
 

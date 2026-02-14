@@ -39,7 +39,42 @@ def generate_telegram_report(report: PortfolioReport) -> str:
     grade = report.health_grade
     grade_emoji = _grade_emoji(grade)
     lines.append(f"{grade_emoji} <b>HEALTH SCORE: {score:.0f}/100 ({grade})</b>")
+
+    # ── Goal tracking ──
+    if report.weekly_target_pct > 0:
+        target_emoji = "\u2705" if report.on_track else "\u274C"
+        lines.append(f"{target_emoji} <b>Weekly Target: {report.weekly_target_pct:.1f}%</b> | Actual: <b>{report.weekly_actual_pct:+.1f}%</b>")
+        if report.weeks_analyzed > 0:
+            lines.append(f"  Weeks on target: {report.weeks_on_target}/{report.weeks_analyzed}")
     lines.append("")
+
+    # ── Week-in-Review ──
+    attr = report.week_attribution
+    if attr and attr.get("verdict"):
+        verdict = attr["verdict"]
+        verdict_emojis = {
+            "ON_TRACK": "\U0001F7E2", "MARKET_DRIVEN": "\U0001F30A",
+            "STRATEGY_FAIL": "\U0001F534", "STRATEGY_WIN": "\U0001F3C6",
+            "BAD_LUCK": "\U0001F3B2", "POOR_ENTRIES": "\u26A0\uFE0F",
+            "RISK_MANAGEMENT": "\u2696\uFE0F", "CHURNING": "\U0001F504",
+            "LOW_ACTIVITY": "\U0001F6AB", "NO_TRADES": "\u2796",
+        }
+        ve = verdict_emojis.get(verdict, "\u2753")
+        lines.append(f"{ve} <b>WEEK IN REVIEW: {verdict.replace('_', ' ')}</b>")
+        lines.append(f"  {attr.get('explanation', '')}")
+        if attr.get("best_trade"):
+            lines.append(
+                f"  Best: {attr['best_trade']['ticker']} (${attr['best_trade']['pnl']:+,.0f}) | "
+                f"Worst: {attr['worst_trade']['ticker']} (${attr['worst_trade']['pnl']:+,.0f})"
+            )
+        lines.append("")
+
+    # ── Fear & Greed (HFM only) ──
+    if report.fear_greed_index > 0:
+        fg = report.fear_greed_index
+        fg_bar = "\U0001F7E2" if fg < 30 else "\U0001F7E1" if fg < 55 else "\U0001F7E0" if fg < 75 else "\U0001F534"
+        lines.append(f"{fg_bar} <b>Crypto Fear & Greed: {fg}/100 ({report.fear_greed_label})</b>")
+        lines.append("")
 
     # ── Performance Summary ──
     lines.append("\U0001F4CA <b>Performance Summary</b>")
@@ -163,7 +198,37 @@ def generate_cli_report(report: PortfolioReport) -> str:
     grade = report.health_grade
     bar = _progress_bar(score, 100, 30)
     lines.append(f"  HEALTH: [{bar}] {score:.0f}/100 ({grade})")
+
+    # Goal tracking
+    if report.weekly_target_pct > 0:
+        target_mark = "[HIT]" if report.on_track else "[MISS]"
+        lines.append(f"  TARGET: {report.weekly_target_pct:.1f}%/week | This week: {report.weekly_actual_pct:+.1f}% {target_mark}")
+        if report.weeks_analyzed > 0:
+            lines.append(f"  TRACK RECORD: {report.weeks_on_target}/{report.weeks_analyzed} weeks on target")
     lines.append("")
+
+    # Week-in-Review
+    attr = report.week_attribution
+    if attr and attr.get("verdict"):
+        verdict = attr["verdict"]
+        lines.append(f"  WEEK IN REVIEW: {verdict.replace('_', ' ')}")
+        explanation = attr.get("explanation", "")
+        for wrapped_line in _wrap(explanation, w - 4):
+            lines.append(f"    {wrapped_line}")
+        if attr.get("best_trade"):
+            lines.append(
+                f"    Best: {attr['best_trade']['ticker']} "
+                f"(${attr['best_trade']['pnl']:+,.0f}) | "
+                f"Worst: {attr['worst_trade']['ticker']} "
+                f"(${attr['worst_trade']['pnl']:+,.0f})"
+            )
+        lines.append("")
+
+    # Fear & Greed
+    if report.fear_greed_index > 0:
+        fg_bar = _progress_bar(report.fear_greed_index, 100, 20)
+        lines.append(f"  CRYPTO FEAR & GREED: [{fg_bar}] {report.fear_greed_index}/100 ({report.fear_greed_label})")
+        lines.append("")
 
     # Component scores
     if report.health_components:
