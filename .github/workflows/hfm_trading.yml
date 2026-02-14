@@ -2,31 +2,40 @@ name: HFM Auto-Trader
 
 on:
   schedule:
-    # ── ENTRY sessions (weekdays) ──
-    # Reduced frequency: 4H candles only need 2-3 checks per day
-    - cron: "0 8 * * 1-5"      # LONDON OPEN entry
-    - cron: "0 13 * * 1-5"     # OVERLAP entry (London/NY overlap)
-    - cron: "30 14 * * 1-5"    # NY OPEN entry
+    # ══════════════════════════════════════════════════════════
+    #  ENTRY SESSIONS
+    # ══════════════════════════════════════════════════════════
 
-    # ── ENTRY sessions (weekends — crypto only) ──
-    - cron: "0 2 * * 0,6"      # ASIAN CRYPTO entry (Sat/Sun)
-    - cron: "0 14 * * 0,6"     # AFTERNOON CRYPTO entry (Sat/Sun)
+    # ── Forex & Commodity entries (weekdays only, 24/5 market) ──
+    - cron: "0 8 * * 1-5"              # London open — forex majors
+    - cron: "0 13 * * 1-5"             # London/NY overlap — forex + commodities + crypto
+    - cron: "30 14 * * 1-5"            # NY open — forex & commodities
 
-    # ── MONITOR (weekdays — every 4 hours, not hourly) ──
-    # With 4H candles and wider stops, hourly monitoring is unnecessary
-    # and wastes GitHub Actions minutes + risks stale quote closures
-    - cron: "0 10 * * 1-5"     # monitor after London
-    - cron: "0 14 * * 1-5"     # monitor overlap
-    - cron: "0 18 * * 1-5"     # monitor late NY
-    - cron: "0 22 * * 1-5"     # monitor end of day
+    # ── Crypto entries (every 4H, 7 days/week, 24/7 market) ──
+    # 4H candles close at 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC.
+    # Scan 30 min after each close to ensure yfinance data is available.
+    # This gives 6 crypto entry scans per day, every day including
+    # weekends and nights — matching the 4H candle timeframe exactly.
+    - cron: "30 0,4,8,12,16,20 * * *"
 
-    # ── MONITOR (weekends — crypto positions) ──
-    - cron: "0 8 * * 0,6"      # weekend monitor
-    - cron: "0 20 * * 0,6"     # weekend monitor
+    # ══════════════════════════════════════════════════════════
+    #  POSITION MONITOR (every 2H, 7 days/week)
+    # ══════════════════════════════════════════════════════════
+    # Crypto is volatile — positions need frequent checks for:
+    #   - Trailing stop adjustments
+    #   - Partial close at R-target
+    #   - PnL safety net ($500 max loss)
+    #   - Signal reversal detection
+    # Runs at :45 past ODD hours to avoid cron collisions with
+    # entry jobs (which run at :00 or :30).
+    - cron: "45 1,3,5,7,9,11,13,15,17,19,21,23 * * *"
 
-    # ── EOD SUMMARY ──
-    - cron: "30 20 * * 1-5"    # weekday EOD summary
-    - cron: "30 22 * * 0"      # Sunday EOD summary
+    # ══════════════════════════════════════════════════════════
+    #  EOD SUMMARY
+    # ══════════════════════════════════════════════════════════
+    # Runs at :45 on EVEN hours to avoid collision with monitors
+    - cron: "45 20 * * 1-5"            # weekday EOD summary
+    - cron: "45 22 * * 0"              # Sunday weekly summary
 
   workflow_dispatch:
     inputs:
@@ -41,7 +50,7 @@ on:
         required: false
         default: "london"
         type: choice
-        options: [london, ny, overlap, asian_crypto]
+        options: [london, ny, overlap, crypto]
       dry_run:
         description: "Dry run (no real orders)"
         required: false
@@ -50,8 +59,22 @@ on:
 
 # NOTE: HFM_MT5_SERVER secret must be IP:port (e.g. 18.134.38.113:1950)
 
+# ─────────────────────────────────────────────────────────────
+#  SCHEDULE SUMMARY
+# ─────────────────────────────────────────────────────────────
+#  Crypto entries:  6/day × 7 days = 42/week
+#  Forex entries:   3/day × 5 days = 15/week
+#  Monitors:       12/day × 7 days = 84/week
+#  EOD:             5 weekday + 1 Sunday = 6/week
+#  TOTAL:          ~147 jobs/week (~12 min each ≈ 1,764 min/week)
+#
+#  Effective check frequency with entries + monitors combined:
+#  - Crypto: something runs roughly every ~1 hour
+#  - Forex (weekdays): something runs roughly every ~1–2 hours
+# ─────────────────────────────────────────────────────────────
+
 jobs:
-  # ═══════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════
   verify:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -93,7 +116,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode verify --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
-  # ═══════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════
   cleanup:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -136,9 +159,9 @@ jobs:
         run: |
           python -m trading.run_trading --mode cleanup --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe" ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
 
-  # ═══════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════
   #  ENTRY JOBS
-  # ═══════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════
 
   london-entry:
     runs-on: windows-latest
@@ -269,14 +292,13 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode entry --session ny --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
-  # ── Crypto entries: Asian session + weekends ──────────
-  asian-crypto-entry:
+  # ── Crypto entries: every 4H, 24/7 ─────────────────────
+  crypto-entry:
     runs-on: windows-latest
     timeout-minutes: 20
     if: >-
-      github.event.schedule == '0 2 * * 0,6' ||
-      github.event.schedule == '0 14 * * 0,6' ||
-      (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'asian_crypto')
+      github.event.schedule == '30 0,4,8,12,16,20 * * *' ||
+      (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'crypto')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -305,29 +327,24 @@ jobs:
           "@ | Set-Content "$cfgDir\common.ini" -Encoding ASCII
       - name: Install packages
         run: pip install MetaTrader5 yfinance pandas numpy
-      - name: "Asian Crypto Entry"
+      - name: "Crypto Entry (24/7)"
         env:
           HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
           HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
           HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
-        run: python -m trading.run_trading --mode entry --session asian_crypto --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
+        run: python -m trading.run_trading --mode entry --session crypto --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
-  # ═══════════════════════════════════════════════════════
-  #  MONITOR (every 4 hours instead of hourly)
-  # ═══════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════
+  #  MONITOR — every 2 hours, 24/7
+  # ═══════════════════════════════════════════════════════════
 
   monitor:
     runs-on: windows-latest
     timeout-minutes: 20
     if: >-
-      github.event.schedule == '0 10 * * 1-5' ||
-      github.event.schedule == '0 14 * * 1-5' ||
-      github.event.schedule == '0 18 * * 1-5' ||
-      github.event.schedule == '0 22 * * 1-5' ||
-      github.event.schedule == '0 8 * * 0,6' ||
-      github.event.schedule == '0 20 * * 0,6' ||
+      github.event.schedule == '45 1,3,5,7,9,11,13,15,17,19,21,23 * * *' ||
       github.event.inputs.mode == 'monitor'
     steps:
       - uses: actions/checkout@v4
@@ -366,16 +383,16 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
         run: python -m trading.run_trading --mode monitor --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
-  # ═══════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════
   #  EOD SUMMARY
-  # ═══════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════
 
   eod-summary:
     runs-on: windows-latest
     timeout-minutes: 20
     if: >-
-      github.event.schedule == '30 20 * * 1-5' ||
-      github.event.schedule == '30 22 * * 0' ||
+      github.event.schedule == '45 20 * * 1-5' ||
+      github.event.schedule == '45 22 * * 0' ||
       github.event.inputs.mode == 'summary'
     steps:
       - uses: actions/checkout@v4
