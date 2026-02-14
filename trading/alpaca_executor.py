@@ -169,7 +169,19 @@ SECTOR_ETFS = {
     "industrials":      "XLI",
     "clean_energy":     "ICLN",
     "consumer":         "XLY",
-    # leveraged doesn't have a sector ETF — uses tech (TQQQ tracks QQQ)
+    "crypto_proxy":     "BTC-USD",  # for MSTR/MSTU/MSTZ (Bitcoin proxies)
+}
+
+# Leveraged tickers each track a different underlying — map them individually
+# so MSTR-family uses Bitcoin momentum, TQQQ/FNGU use tech, SOXL uses semis
+LEVERAGED_MOMENTUM_MAP = {
+    "MSTU":  "crypto_proxy",   # 2x long MicroStrategy → Bitcoin proxy
+    "MSTR":  "crypto_proxy",   # MicroStrategy itself → Bitcoin proxy
+    "MSTZ":  "crypto_proxy",   # 2x short MicroStrategy → Bitcoin proxy
+    "TSLL":  "tech",           # 2x Tesla → tech sector
+    "TQQQ":  "tech",           # 3x Nasdaq → tech sector
+    "SOXL":  "semis",          # 3x Semiconductors → semis sector
+    "FNGU":  "tech",           # 3x FAANG → tech sector
 }
 
 # Max single-ticker allocation (default: half of category cap)
@@ -384,7 +396,7 @@ def get_sector_momentum(lookback: int = 20) -> dict[str, float]:
     return momentum
 
 
-def get_sector_score_adjustment(category: str) -> int:
+def get_sector_score_adjustment(category: str, ticker: str = "") -> int:
     """
     Returns min_score ADJUSTMENT for a sector based on its momentum.
 
@@ -396,14 +408,19 @@ def get_sector_score_adjustment(category: str) -> int:
       tech min_score might go from 3 → 5 (harder to buy tech)
       energy min_score might go from 3 → 2 (easier to buy energy)
 
-    The system naturally rotates capital toward green sectors.
+    For leveraged tickers: each one tracks its actual underlying:
+      MSTU/MSTR/MSTZ → Bitcoin momentum (they're MicroStrategy = Bitcoin proxy)
+      TQQQ/FNGU      → tech momentum (they track Nasdaq/FAANG)
+      SOXL           → semis momentum (tracks semiconductors)
+      TSLL           → tech momentum (tracks Tesla/tech)
     """
     momentum = get_sector_momentum()
     mom = momentum.get(category, 0.0)
 
-    # Leveraged tracks tech
-    if category == "leveraged":
-        mom = momentum.get("tech", 0.0)
+    # Leveraged tickers: use per-ticker underlying momentum
+    if category == "leveraged" and ticker:
+        underlying = LEVERAGED_MOMENTUM_MAP.get(ticker.upper(), "tech")
+        mom = momentum.get(underlying, 0.0)
 
     if mom > 5.0:
         return -1   # strong sector — lower the bar
@@ -613,7 +630,7 @@ class AlpacaExecutor:
         #    higher scores to enter, sectors trending up need lower scores.
         regime = get_market_regime()
         base_min_score = regime["min_score"]
-        sector_adj = get_sector_score_adjustment(category)
+        sector_adj = get_sector_score_adjustment(category, ticker=ticker)
         min_score = max(2, base_min_score + sector_adj)  # never below 2
 
         if sector_adj != 0:
