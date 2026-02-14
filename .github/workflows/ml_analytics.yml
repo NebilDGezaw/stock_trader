@@ -1,0 +1,128 @@
+name: ML Portfolio Analytics
+
+on:
+  schedule:
+    # ── Weekly deep analysis — Friday after market close ──
+    - cron: "0 22 * * 5"    # 5:00 PM ET Friday
+
+    # ── Mid-week check — Wednesday after market close ──
+    - cron: "0 22 * * 3"    # 5:00 PM ET Wednesday
+
+  workflow_dispatch:
+    inputs:
+      system:
+        description: "Which system to analyze"
+        required: true
+        default: "both"
+        type: choice
+        options: [alpaca, hfm, both]
+      days:
+        description: "Lookback period in days"
+        required: false
+        default: "90"
+        type: string
+
+env:
+  ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+  ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+  ALPACA_PAPER: ${{ secrets.ALPACA_PAPER }}
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+jobs:
+  # ═══════════════════════════════════════════════════════
+  #  ALPACA ML ANALYTICS (ubuntu — no MT5 needed)
+  # ═══════════════════════════════════════════════════════
+  alpaca-analytics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: >-
+      github.event.schedule == '0 22 * * 5' ||
+      github.event.schedule == '0 22 * * 3' ||
+      github.event.inputs.system == 'alpaca' ||
+      github.event.inputs.system == 'both'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install packages
+        run: pip install alpaca-py yfinance pandas numpy scikit-learn statsmodels scipy
+
+      # Restore persisted ML data from previous runs
+      - uses: actions/cache@v4
+        with:
+          path: ml/data
+          key: ml-data-alpaca-${{ github.run_number }}
+          restore-keys: |
+            ml-data-alpaca-
+
+      - name: "Run Alpaca ML Analytics"
+        run: |
+          DAYS="${{ github.event.inputs.days || '90' }}"
+          python -m ml.run_ml --system alpaca --days $DAYS --telegram
+
+  # ═══════════════════════════════════════════════════════
+  #  HFM ML ANALYTICS (windows — needs MT5 for deal history)
+  # ═══════════════════════════════════════════════════════
+  hfm-analytics:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    if: >-
+      github.event.schedule == '0 22 * * 5' ||
+      github.event.schedule == '0 22 * * 3' ||
+      github.event.inputs.system == 'hfm' ||
+      github.event.inputs.system == 'both'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - uses: actions/cache@v4
+        id: cache-mt5
+        with:
+          path: 'C:\Program Files\MetaTrader 5'
+          key: ${{ runner.os }}-mt5-choco-v2
+
+      - name: Install MT5
+        if: steps.cache-mt5.outputs.cache-hit != 'true'
+        run: choco install metatrader5 --pre -y
+
+      - name: Enable AutoTrading
+        shell: pwsh
+        run: |
+          $cfgDir = "C:\Program Files\MetaTrader 5\config"
+          New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+          @"
+          [Experts]
+          AllowLiveTrading=1
+          Enabled=1
+          Account=0
+          Profile=0
+          "@ | Set-Content "$cfgDir\common.ini" -Encoding ASCII
+
+      - name: Install packages
+        run: pip install MetaTrader5 yfinance pandas numpy scikit-learn statsmodels scipy
+
+      # Restore persisted ML data from previous runs
+      - uses: actions/cache@v4
+        with:
+          path: ml/data
+          key: ml-data-hfm-${{ github.run_number }}
+          restore-keys: |
+            ml-data-hfm-
+
+      - name: "Run HFM ML Analytics"
+        env:
+          HFM_MT5_LOGIN: ${{ secrets.HFM_MT5_LOGIN }}
+          HFM_MT5_PASSWORD: ${{ secrets.HFM_MT5_PASSWORD }}
+          HFM_MT5_SERVER: ${{ secrets.HFM_MT5_SERVER }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_GROUP_CHAT_ID }}
+        run: |
+          $DAYS = "${{ github.event.inputs.days }}"
+          if (-not $DAYS) { $DAYS = "90" }
+          python -m ml.run_ml --system hfm --days $DAYS --telegram

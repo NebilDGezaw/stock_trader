@@ -498,6 +498,25 @@ def mode_summary(client: AlpacaClient):
 
     send_telegram("\n".join(lines))
 
+    # ── ML Data Collection: save daily snapshot for analytics ──
+    try:
+        from ml.data_collector import AccountSnapshot, _append_snapshot, collect_alpaca_trades
+        snap = AccountSnapshot(
+            timestamp=datetime.utcnow().isoformat(),
+            system="alpaca",
+            equity=summary["equity"],
+            balance=summary["balance"],
+            open_positions=summary["total_positions"],
+            daily_pnl=summary.get("total_pnl", 0),
+            unrealized_pnl=summary.get("total_pnl", 0),
+        )
+        _append_snapshot(snap)
+        # Also collect recent trades for ML training data
+        collect_alpaca_trades(days=7)
+        logger.info("ML snapshot saved for Alpaca")
+    except Exception as e:
+        logger.debug(f"ML snapshot failed (non-critical): {e}")
+
 
 # ──────────────────────────────────────────────────────────
 #  Mode: Verify — check asset availability

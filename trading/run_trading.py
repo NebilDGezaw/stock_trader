@@ -75,8 +75,8 @@ SESSIONS = {
         "stock_mode": False,
     },
     # ── Crypto: 4H candles, BTC & ETH only ───────────────
-    "asian_crypto": {
-        "label": "🌏 Crypto — BTC & ETH",
+    "crypto": {
+        "label": "🌏 Crypto — BTC & ETH (24/7)",
         "tickers": ["BTC-USD", "ETH-USD"],
         "interval": "4h",
         "period": "3mo",
@@ -426,6 +426,25 @@ def mode_summary(client: MT5Client):
         lines.append("No open positions.")
 
     send_telegram("\n".join(lines))
+
+    # ── ML Data Collection: save daily snapshot for analytics ──
+    try:
+        from ml.data_collector import AccountSnapshot, _append_snapshot, collect_hfm_trades
+        snap = AccountSnapshot(
+            timestamp=datetime.utcnow().isoformat(),
+            system="hfm",
+            equity=summary["equity"],
+            balance=summary["balance"],
+            open_positions=summary["total_positions"],
+            daily_pnl=summary.get("total_pnl", 0),
+            unrealized_pnl=summary.get("total_pnl", 0),
+        )
+        _append_snapshot(snap)
+        # Also collect recent deals for ML training data
+        collect_hfm_trades(days=7)
+        logger.info("ML snapshot saved for HFM")
+    except Exception as e:
+        logger.debug(f"ML snapshot failed (non-critical): {e}")
 
 
 # ──────────────────────────────────────────────────────────
