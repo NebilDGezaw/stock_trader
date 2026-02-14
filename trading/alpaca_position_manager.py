@@ -349,6 +349,126 @@ class AlpacaPositionManager:
             f"PnL=${pos.unrealized_pl:+.2f} ({pos.unrealized_plpc*100:+.1f}%)"
         )
 
+        # ── Step 0a: VIX-aware stop tightening for EXISTING positions ─
+        #    When VIX spikes, our existing positions are in danger.
+        #    We can't just ignore them. Tighten stops proactively.
+        try:
+            from trading.alpaca_executor import get_vix_regime
+            vix = get_vix_regime()
+            vix_val = vix.get("vix", 18)
+
+            vix_extreme = getattr(config, "VIX_EXTREME", 30)
+            vix_high = getattr(config, "VIX_HIGH", 25)
+
+            if vix_val >= vix_extreme and is_long and sl_price > 0:
+                # VIX EXTREME (>30): tighten SL to 1% below current price
+                # This protects against crash continuation
+                tight_sl = pos.current_price * 0.99
+                if tight_sl > sl_price:
+                    logger.warning(
+                        f"VIX EXTREME ({vix_val:.0f}): Tightening SL on {ticker} "
+                        f"from ${sl_price:.2f} to ${tight_sl:.2f} (1% below current)"
+                    )
+                    if not self.dry_run:
+                        success = self._replace_stop_order(
+                            ticker, int(pos.qty), tight_sl, "sell"
+                        )
+                        if success:
+                            return PositionUpdate(
+                                symbol=ticker,
+                                action_taken="trail_stop",
+                                old_sl=sl_price,
+                                new_sl=tight_sl,
+                                pnl=pos.unrealized_pl,
+                                reason=f"VIX extreme ({vix_val:.0f}): "
+                                       f"tightened SL ${sl_price:.2f} → ${tight_sl:.2f}",
+                            )
+                    else:
+                        return PositionUpdate(
+                            symbol=ticker,
+                            action_taken="trail_stop",
+                            old_sl=sl_price,
+                            new_sl=tight_sl,
+                            pnl=pos.unrealized_pl,
+                            reason=f"[DRY RUN] VIX extreme ({vix_val:.0f}): "
+                                   f"tightened SL ${sl_price:.2f} → ${tight_sl:.2f}",
+                        )
+
+            elif vix_val >= vix_high and is_long and sl_price > 0:
+                # VIX HIGH (25-30): tighten SL to 2% below current price
+                tight_sl = pos.current_price * 0.98
+                if tight_sl > sl_price:
+                    logger.info(
+                        f"VIX HIGH ({vix_val:.0f}): Tightening SL on {ticker} "
+                        f"from ${sl_price:.2f} to ${tight_sl:.2f} (2% below current)"
+                    )
+                    if not self.dry_run:
+                        success = self._replace_stop_order(
+                            ticker, int(pos.qty), tight_sl, "sell"
+                        )
+                        if success:
+                            return PositionUpdate(
+                                symbol=ticker,
+                                action_taken="trail_stop",
+                                old_sl=sl_price,
+                                new_sl=tight_sl,
+                                pnl=pos.unrealized_pl,
+                                reason=f"VIX high ({vix_val:.0f}): "
+                                       f"tightened SL ${sl_price:.2f} → ${tight_sl:.2f}",
+                            )
+                    else:
+                        return PositionUpdate(
+                            symbol=ticker,
+                            action_taken="trail_stop",
+                            old_sl=sl_price,
+                            new_sl=tight_sl,
+                            pnl=pos.unrealized_pl,
+                            reason=f"[DRY RUN] VIX high ({vix_val:.0f}): "
+                                   f"tightened SL ${sl_price:.2f} → ${tight_sl:.2f}",
+                        )
+        except Exception as e:
+            logger.debug(f"VIX check for existing position {ticker} failed: {e}")
+
+        # ── Step 0b: Earnings protection for EXISTING positions ───
+        #    If we're holding a stock and earnings are TOMORROW,
+        #    close it now rather than gamble through the report.
+        try:
+            from trading.alpaca_executor import check_earnings_blackout
+            earnings = check_earnings_blackout(ticker)
+            days_to = earnings.get("days_to_earnings", 999)
+
+            # Close if earnings are within 1 day (tomorrow or today)
+            if 0 <= days_to <= 1:
+                logger.warning(
+                    f"EARNINGS PROTECTION: {ticker} reports on "
+                    f"{earnings.get('earnings_date', '?')} ({days_to}d away) "
+                    f"— closing to avoid gap risk. PnL=${pos.unrealized_pl:+.2f}"
+                )
+                if not self.dry_run:
+                    self._cancel_all_orders(ticker)
+                    result = self.client.close_position(ticker)
+                    if result.success:
+                        return PositionUpdate(
+                            symbol=ticker,
+                            action_taken="full_close",
+                            pnl=pos.unrealized_pl,
+                            reason=f"Earnings protection: reports in {days_to}d "
+                                   f"({earnings.get('earnings_date', '?')})",
+                        )
+                    else:
+                        logger.error(
+                            f"Earnings close FAILED for {ticker}: {result.message}"
+                        )
+                else:
+                    return PositionUpdate(
+                        symbol=ticker,
+                        action_taken="full_close",
+                        pnl=pos.unrealized_pl,
+                        reason=f"[DRY RUN] Earnings protection: reports in {days_to}d",
+                    )
+        except Exception as e:
+            logger.debug(f"Earnings check for existing position {ticker} failed: {e}")
+
         # ── Step 1: Check for signal reversal ────────────
         if self.enable_reversal_close and r_multiple < 0.5:
             current_signal = _rerun_strategy(ticker)
