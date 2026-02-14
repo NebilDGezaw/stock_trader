@@ -1,0 +1,132 @@
+[
+  {
+    "timestamp": "2026-01-31T20:45:16.005217",
+    "system": "hfm",
+    "equity": 72315.33,
+    "balance": 72315.33,
+    "open_positions": 3,
+    "daily_pnl": -3684.67,
+    "daily_pnl_pct": -5.1,
+    "unrealized_pnl": -1105.4
+  },
+  {
+    "timestamp": "2026-02-01T20:45:16.005217",
+    "system": "hfm",
+    "equity": 67428.6,
+    "balance": 67428.6,
+    "open_positions": 3,
+    "daily_pnl": -4886.73,
+    "daily_pnl_pct": -7.25,
+    "unrealized_pnl": -1466.02
+  },
+  {
+    "timestamp": "2026-02-02T20:45:16.005217",
+    "system": "hfm",
+    "equity": 67274.59,
+    "balance": 67274.59,
+    "open_positions": 1,
+    "daily_pnl": -154.01,
+    "daily_pnl_pct": -0.23,
+    "unrealized_pnl": -46.2
+  },
+  {
+    "timestamp": "2026-02-03T20:45:16.005217",
+    "system": "hfm",
+    "equity": 67409.51,
+    "balance": 67409.51,
+    "open_positions": 3,
+    "daily_pnl": 134.91,
+    "daily_pnl_pct": 0.2,
+    "unrealized_pnl": 40.47
+  },
+  {
+    "timestamp": "2026-02-04T20:45:16.005217",
+    "system": "hfm",
+    "equity": 67235.36,
+    "balance": 67235.36,
+    "open_positions": 2,
+    "daily_pnl": -174.14,
+    "daily_pnl_pct": -0.26,
+    "unrealized_pnl": -52.24
+  },
+  {
+    "timestamp": "2026-02-05T20:45:16.005217",
+    "system": "hfm",
+    "equity": 67356.48,
+    "balance": 67356.48,
+    "open_positions": 1,
+    "daily_pnl": 121.12,
+    "daily_pnl_pct": 0.18,
+    "unrealized_pnl": 36.34
+  },
+  {
+    "timestamp": "2026-02-06T20:45:16.005217",
+    "system": "hfm",
+    "equity": 67292.8,
+    "balance": 67292.8,
+    "open_positions": 0,
+    "daily_pnl": -63.68,
+    "daily_pnl_pct": -0.09,
+    "unrealized_pnl": -19.1
+  },
+  {
+    "timestamp": "2026-02-08T20:45:16.005217",
+    "system": "hfm",
+    "equity": 67387.83,
+    "balance": 67387.83,
+    "open_positions": 0,
+    "daily_pnl": 95.02,
+    "daily_pnl_pct": 0.14,
+    "unrealized_pnl": 28.51
+  },
+  {
+    "timestamp": "2026-02-09T20:45:16.005217",
+    "system": "hfm",
+    "equity": 68119.28,
+    "balance": 68119.28,
+    "open_positions": 3,
+    "daily_pnl": 731.46,
+    "daily_pnl_pct": 1.07,
+    "unrealized_pnl": 219.44
+  },
+  {
+    "timestamp": "2026-02-10T20:45:16.005217",
+    "system": "hfm",
+    "equity": 68301.55,
+    "balance": 68301.55,
+    "open_positions": 1,
+    "daily_pnl": 182.27,
+    "daily_pnl_pct": 0.27,
+    "unrealized_pnl": 54.68
+  },
+  {
+    "timestamp": "2026-02-11T20:45:16.005217",
+    "system": "hfm",
+    "equity": 68200.86,
+    "balance": 68200.86,
+    "open_positions": 3,
+    "daily_pnl": -100.69,
+    "daily_pnl_pct": -0.15,
+    "unrealized_pnl": -30.21
+  },
+  {
+    "timestamp": "2026-02-12T20:45:16.005217",
+    "system": "hfm",
+    "equity": 68365.8,
+    "balance": 68365.8,
+    "open_positions": 3,
+    "daily_pnl": 164.95,
+    "daily_pnl_pct": 0.24,
+    "unrealized_pnl": 49.48
+  },
+  {
+    "timestamp": "2026-02-13T20:45:16.005217",
+    "system": "hfm",
+    "equity": 68693.03,
+    "balance": 68693.03,
+    "open_positions": 1,
+    "daily_pnl": 327.23,
+    "daily_pnl_pct": 0.48,
+    "unrealized_pnl": 98.17
+  }
+]

@@ -216,13 +216,13 @@ def generate_cli_report(report: PortfolioReport) -> str:
     # Weaknesses
     if report.weaknesses:
         lines.append("  WEAKNESSES")
-        for i, w in enumerate(report.weaknesses[:7], 1):
-            sev = "[HIGH]" if w["severity"] == "high" else "[MED] "
-            metric_label = "WR" if w["metric"] == "win_rate" else "PnL"
+        for i, wk in enumerate(report.weaknesses[:7], 1):
+            sev = "[HIGH]" if wk["severity"] == "high" else "[MED] "
+            metric_label = "WR" if wk["metric"] == "win_rate" else "PnL"
             lines.append(
-                f"    {sev} {w['dimension']}={w['value']}: "
-                f"{metric_label}={w['this_value']} "
-                f"(avg: {w['portfolio_avg']}, n={w['trade_count']})"
+                f"    {sev} {wk['dimension']}={wk['value']}: "
+                f"{metric_label}={wk['this_value']} "
+                f"(avg: {wk['portfolio_avg']}, n={wk['trade_count']})"
             )
         lines.append("")
 

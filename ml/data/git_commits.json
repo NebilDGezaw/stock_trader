@@ -1,0 +1,1314 @@
+[
+  {
+    "sha": "8edd5226f849f5c318b7aa3a17d54e15fd685d0a",
+    "timestamp": "2026-02-14T04:54:45-06:00",
+    "message": "Add ML portfolio analytics system for health monitoring and forecasting",
+    "files_changed": [
+      ".github/workflows/ml_analytics.yml",
+      "ml/__init__.py",
+      "ml/__main__.py",
+      "ml/analyzer.py",
+      "ml/data/.gitkeep",
+      "ml/data_collector.py",
+      "ml/features.py",
+      "ml/models.py",
+      "ml/report.py",
+      "ml/run_ml.py",
+      "requirements.txt",
+      "trading/run_alpaca.py",
+      "trading/run_trading.py"
+    ],
+    "insertions": 2801,
+    "deletions": 3,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "d04877778d506672199477ecdc2239e801d193e9",
+    "timestamp": "2026-02-14T03:44:58-06:00",
+    "message": "Ground-up rebuild: HFM strategies, infrastructure fixes, stock improvements",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml",
+      "PROJECT_OVERVIEW.md",
+      "bt_engine/engine.py",
+      "config.py",
+      "strategies/commodity_strategy.py",
+      "strategies/crypto_momentum.py",
+      "strategies/forex_ict.py",
+      "trading/alpaca_executor.py",
+      "trading/executor.py",
+      "trading/mt5_client.py",
+      "trading/position_manager.py",
+      "trading/run_alpaca.py",
+      "trading/run_trading.py"
+    ],
+    "insertions": 1461,
+    "deletions": 545,
+    "touches_strategy": true,
+    "touches_executor": true,
+    "touches_config": true,
+    "touches_risk": true
+  },
+  {
+    "sha": "9f6694f0a7f1c66c65fa93b1d11cc8651e28dc27",
+    "timestamp": "2026-02-13T13:25:20-06:00",
+    "message": "Fix 12 bugs in safety nets, strategies, and indicators",
+    "files_changed": [
+      "data/fetcher.py",
+      "strategies/forex_ict.py",
+      "strategies/smc_strategy.py",
+      "trading/alpaca_client.py",
+      "trading/alpaca_executor.py",
+      "trading/alpaca_position_manager.py",
+      "trading/executor.py",
+      "utils/helpers.py"
+    ],
+    "insertions": 186,
+    "deletions": 78,
+    "touches_strategy": true,
+    "touches_executor": true,
+    "touches_config": false,
+    "touches_risk": true
+  },
+  {
+    "sha": "2a12e6c8867b245d705a31030dbe459cabba111f",
+    "timestamp": "2026-02-13T10:44:20-06:00",
+    "message": "Critical bugfixes: missing stop losses, bracket cleanup, telegram",
+    "files_changed": [
+      "config.py",
+      "trading/alpaca_executor.py",
+      "trading/alpaca_position_manager.py",
+      "trading/run_alpaca.py"
+    ],
+    "insertions": 152,
+    "deletions": 25,
+    "touches_strategy": true,
+    "touches_executor": true,
+    "touches_config": true,
+    "touches_risk": true
+  },
+  {
+    "sha": "d6dec788ed02652559e4e982e0504179a3d6208a",
+    "timestamp": "2026-02-13T07:54:58-06:00",
+    "message": "Improve stock strategy: rotation, regime filter, trailing, inverse pairs",
+    "files_changed": [
+      "config.py",
+      "trading/alpaca_client.py",
+      "trading/alpaca_executor.py",
+      "trading/alpaca_position_manager.py"
+    ],
+    "insertions": 310,
+    "deletions": 26,
+    "touches_strategy": true,
+    "touches_executor": true,
+    "touches_config": true,
+    "touches_risk": true
+  },
+  {
+    "sha": "82a45e94f5339198996fa7eb67cd64abed205e30",
+    "timestamp": "2026-02-13T07:37:07-06:00",
+    "message": "Fix stuck positions blocking new trades \u2014 add position cleanup logic",
+    "files_changed": [
+      ".env.example",
+      ".github/workflows/hfm_trading.yml",
+      "trading/mt5_client.py",
+      "trading/position_manager.py",
+      "trading/run_trading.py"
+    ],
+    "insertions": 197,
+    "deletions": 29,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": true
+  },
+  {
+    "sha": "24c0ed416bd3297e61e223eee386618ced5f63cf",
+    "timestamp": "2026-02-12T10:04:29-06:00",
+    "message": "Revert forex/crypto position limits to 2 \u2014 user concern about stacked exposure",
+    "files_changed": [
+      "config.py",
+      "trading/executor.py"
+    ],
+    "insertions": 6,
+    "deletions": 5,
+    "touches_strategy": true,
+    "touches_executor": true,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "e7ffed9fcb78038a55e3f063ca4c0ebeec8e5d0c",
+    "timestamp": "2026-02-12T09:00:25-06:00",
+    "message": "Loosen conservative HFM trading params \u2014 restore activity",
+    "files_changed": [
+      "alerts/telegram_bot.py",
+      "config.py",
+      "trading/executor.py"
+    ],
+    "insertions": 26,
+    "deletions": 26,
+    "touches_strategy": true,
+    "touches_executor": true,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "2ddc5c6b3e0be63388f556f2bee4cb80a0a8c4fc",
+    "timestamp": "2026-02-11T14:03:07-06:00",
+    "message": "Retry cancellation loop for bracket legs before closing shorts",
+    "files_changed": [
+      "trading/alpaca_position_manager.py"
+    ],
+    "insertions": 12,
+    "deletions": 6,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": true
+  },
+  {
+    "sha": "44d67c75558e02d487f0e7e5e2adeed51b5d6ace",
+    "timestamp": "2026-02-11T14:00:51-06:00",
+    "message": "Cancel bracket order legs before closing short positions",
+    "files_changed": [
+      "trading/alpaca_position_manager.py"
+    ],
+    "insertions": 8,
+    "deletions": 0,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": true
+  },
+  {
+    "sha": "3c12809abbd3fd3640ec27e01ba91652cda82718",
+    "timestamp": "2026-02-11T14:00:28-06:00",
+    "message": "Fix critical bug: PositionSide enum was not normalized to 'long'/'short'",
+    "files_changed": [
+      "trading/alpaca_client.py"
+    ],
+    "insertions": 19,
+    "deletions": 2,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "9235e545d37bb334257b608a7db2ca506d993ae6",
+    "timestamp": "2026-02-11T13:58:17-06:00",
+    "message": "Halal compliance: disable short selling, fix bracket order expiry",
+    "files_changed": [
+      "trading/alpaca_client.py",
+      "trading/alpaca_executor.py",
+      "trading/alpaca_position_manager.py"
+    ],
+    "insertions": 38,
+    "deletions": 16,
+    "touches_strategy": false,
+    "touches_executor": true,
+    "touches_config": false,
+    "touches_risk": true
+  },
+  {
+    "sha": "48d6c858d14eaad12a77257e9c0d8ffee6631951",
+    "timestamp": "2026-02-11T13:51:53-06:00",
+    "message": "Add Alpaca account audit script and workflow",
+    "files_changed": [
+      ".github/workflows/alpaca_audit.yml",
+      "scripts/alpaca_audit.py"
+    ],
+    "insertions": 414,
+    "deletions": 0,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "7a6e3f2a1a3f38772f3842498a7908f6bb69e856",
+    "timestamp": "2026-02-11T03:09:36-06:00",
+    "message": "Diversify Alpaca portfolio: 28 tickers across 6 categories with allocation caps",
+    "files_changed": [
+      ".env.example",
+      ".github/workflows/alpaca_trading.yml",
+      "config.py",
+      "requirements.txt",
+      "trading/alpaca_executor.py",
+      "trading/run_alpaca.py"
+    ],
+    "insertions": 322,
+    "deletions": 77,
+    "touches_strategy": true,
+    "touches_executor": true,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "5437860609984e656f41a8d7f297ff1876a28be8",
+    "timestamp": "2026-02-10T15:22:25-06:00",
+    "message": "fix: add 2% buying power buffer to prevent insufficient funds errors",
+    "files_changed": [
+      "trading/alpaca_executor.py"
+    ],
+    "insertions": 10,
+    "deletions": 4,
+    "touches_strategy": false,
+    "touches_executor": true,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "92a45b9f471668f51e58a419ea432092efe663d3",
+    "timestamp": "2026-02-10T10:23:29-06:00",
+    "message": "fix: prevent catastrophic over-leverage that caused $24K loss in 2 days",
+    "files_changed": [
+      "config.py",
+      "trading/executor.py",
+      "trading/run_trading.py"
+    ],
+    "insertions": 75,
+    "deletions": 20,
+    "touches_strategy": true,
+    "touches_executor": true,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "1a9a843387990eab55a7a1a17ccb7bedeb15eac7",
+    "timestamp": "2026-02-10T03:26:52-06:00",
+    "message": "fix: skip short-selling non-shortable assets, pass dry-run flag in workflow",
+    "files_changed": [
+      ".github/workflows/alpaca_trading.yml",
+      "trading/alpaca_executor.py"
+    ],
+    "insertions": 37,
+    "deletions": 33,
+    "touches_strategy": false,
+    "touches_executor": true,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "aed46d2c046a40d9075d31b376d9e6be62a1afb7",
+    "timestamp": "2026-02-10T03:17:23-06:00",
+    "message": "Add Alpaca Markets integration for automated stock trading",
+    "files_changed": [
+      ".env.example",
+      ".github/workflows/alpaca_trading.yml",
+      "requirements.txt",
+      "trading/alpaca_client.py",
+      "trading/alpaca_executor.py",
+      "trading/alpaca_position_manager.py",
+      "trading/run_alpaca.py"
+    ],
+    "insertions": 1825,
+    "deletions": 3,
+    "touches_strategy": false,
+    "touches_executor": true,
+    "touches_config": false,
+    "touches_risk": true
+  },
+  {
+    "sha": "4a5d612d263d6925d28900656945d65c581f2ec7",
+    "timestamp": "2026-02-09T18:06:43-06:00",
+    "message": "add Asian crypto session, weekend trading, hourly monitoring",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml",
+      "trading/run_trading.py"
+    ],
+    "insertions": 112,
+    "deletions": 10,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "6ea290d29e4f81c2fef03d2cf23acd353034b9ec",
+    "timestamp": "2026-02-09T13:08:03-06:00",
+    "message": "fix SL/TP delta display: show risk/target % correctly for buy & sell",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 14,
+    "deletions": 4,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "6b494193c08157bb92fc3a4deebf360f44e5d163",
+    "timestamp": "2026-02-09T13:05:16-06:00",
+    "message": "replace navigation buttons with inline detail dropdown",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 72,
+    "deletions": 9,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "07db8e0f4c3242db32ae37040e4b251c414ccf73",
+    "timestamp": "2026-02-09T12:55:46-06:00",
+    "message": "fix: use intermediate flag for scanner-to-detail navigation",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 9,
+    "deletions": 2,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "fa81c013cb587f475745cff925bbe364c1708ed7",
+    "timestamp": "2026-02-09T12:40:08-06:00",
+    "message": "fix: put Details button directly below each scanner row",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 35,
+    "deletions": 35,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "d5511377ca6ff7b7c831aed7c8a1333a345107ba",
+    "timestamp": "2026-02-09T12:32:13-06:00",
+    "message": "fix scanner: persist results in session state, add Details button",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 39,
+    "deletions": 85,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "dd6f3824b2e21596f83b3ab4141e35c80f458e11",
+    "timestamp": "2026-02-09T12:30:55-06:00",
+    "message": "Added Dev Container Folder",
+    "files_changed": [
+      ".devcontainer/devcontainer.json"
+    ],
+    "insertions": 33,
+    "deletions": 0,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "7ab25f8dc02ce2f5b8e3c4499ce54bb9b25f8a46",
+    "timestamp": "2026-02-09T12:21:37-06:00",
+    "message": "add 'View Full Analysis' button in scanner to navigate to detail page",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 15,
+    "deletions": 2,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "e09a8125927f55e1095996caa5b5f8196d94ca4b",
+    "timestamp": "2026-02-09T12:14:45-06:00",
+    "message": "make scanner rows expandable with full trade details inside",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 68,
+    "deletions": 29,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "c54211c3596e9622d16bbc0b33d3ad295a0c3ec4",
+    "timestamp": "2026-02-09T12:09:39-06:00",
+    "message": "improve scanner display: hide SL/TP for HOLD, show Entry for actionable",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 24,
+    "deletions": 7,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "5b8fa6d57b2e49121b861b37dbe2401b467a8d82",
+    "timestamp": "2026-02-09T11:44:09-06:00",
+    "message": "enforce per-asset-class position limits (max 3 each)",
+    "files_changed": [
+      "config.py",
+      "trading/executor.py",
+      "trading/run_trading.py",
+      "trading/symbols.py"
+    ],
+    "insertions": 103,
+    "deletions": 5,
+    "touches_strategy": true,
+    "touches_executor": true,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "72728e08f9a0280b3d7b0ca6dd2fc52b1bb9ab89",
+    "timestamp": "2026-02-09T11:17:14-06:00",
+    "message": "increase max concurrent positions to 5",
+    "files_changed": [
+      "config.py"
+    ],
+    "insertions": 1,
+    "deletions": 1,
+    "touches_strategy": true,
+    "touches_executor": false,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "f037244a4f2834178e17be37d5e1b88ed246a725",
+    "timestamp": "2026-02-09T11:00:29-06:00",
+    "message": "fix: enable AutoTrading in MT5 config before starting terminal",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml"
+    ],
+    "insertions": 79,
+    "deletions": 7,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "faccb8260741091ebc6555f2c146a4ba74aaeed8",
+    "timestamp": "2026-02-09T10:50:46-06:00",
+    "message": "fix: send HFM trade notifications to group chat, not private bot",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml"
+    ],
+    "insertions": 6,
+    "deletions": 6,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "d9a9270607deda079d7a4556b7e97045ed3c5395",
+    "timestamp": "2026-02-09T10:44:12-06:00",
+    "message": "fix: auto-detect filling mode from symbol info (FOK/IOC/RETURN)",
+    "files_changed": [
+      "trading/mt5_client.py"
+    ],
+    "insertions": 53,
+    "deletions": 15,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "f2ab650856951d14f4f39a3cb1e56647fa39c135",
+    "timestamp": "2026-02-09T10:33:59-06:00",
+    "message": "revert risk settings to match live \u2014 only max_risk_per_trade differs",
+    "files_changed": [
+      "config.py",
+      "trading/executor.py",
+      "trading/run_trading.py"
+    ],
+    "insertions": 6,
+    "deletions": 7,
+    "touches_strategy": true,
+    "touches_executor": true,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "a52e546c1936505b7cbc72b224107182eeabfbf0",
+    "timestamp": "2026-02-09T10:32:28-06:00",
+    "message": "adjust risk settings for $100k demo account",
+    "files_changed": [
+      "config.py",
+      "trading/executor.py",
+      "trading/run_trading.py"
+    ],
+    "insertions": 10,
+    "deletions": 7,
+    "touches_strategy": true,
+    "touches_executor": true,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "45bb8ff974c73b9ca183a872ede26202a34ccf47",
+    "timestamp": "2026-02-09T10:28:46-06:00",
+    "message": "enable live trading on demo \u2014 remove --dry-run from all jobs",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml"
+    ],
+    "insertions": 5,
+    "deletions": 5,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "b8359f004f4d28e3a2a02e9b1aa9bbbb639962e6",
+    "timestamp": "2026-02-09T09:44:25-06:00",
+    "message": "fix: always run setup-python with pip cache, drop custom libs caching",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml",
+      "trading/run_trading.py"
+    ],
+    "insertions": 19,
+    "deletions": 146,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "5362eb235ee707b3b7deb4db6b567e5f28a76706",
+    "timestamp": "2026-02-09T09:39:20-06:00",
+    "message": "fix: update crypto symbols to use HFM # prefix (#BTCUSD, #ETHUSD etc.)",
+    "files_changed": [
+      "trading/symbols.py"
+    ],
+    "insertions": 28,
+    "deletions": 20,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "0192d094c4572d572130823ec4d58791ed6b6610",
+    "timestamp": "2026-02-09T08:06:18-06:00",
+    "message": "fix: install MT5 via Chocolatey (proper install) + libs caching",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml",
+      "trading/run_trading.py"
+    ],
+    "insertions": 159,
+    "deletions": 206,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "4ec67b11fd614aee0236bc68920565f5d0f58140",
+    "timestamp": "2026-02-09T07:54:08-06:00",
+    "message": "fix: pre-start MT5 terminal with credentials before Python connects",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml",
+      "trading/mt5_client.py"
+    ],
+    "insertions": 130,
+    "deletions": 54,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "7c09638b4261b6d365fcd7ab45ef9076e8758339",
+    "timestamp": "2026-02-09T07:46:09-06:00",
+    "message": "fix: pass credentials directly to mt5.initialize() to avoid IPC timeout",
+    "files_changed": [
+      "trading/mt5_client.py"
+    ],
+    "insertions": 31,
+    "deletions": 23,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "f691cc44d16f6f508f8a844788a27bd5abebbc12",
+    "timestamp": "2026-02-09T07:37:15-06:00",
+    "message": "fix: pass MT5 path to initialize() and add retry logic for IPC timeout",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml",
+      "trading/mt5_client.py"
+    ],
+    "insertions": 32,
+    "deletions": 53,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "2014296e1feb2e9fa3e4222f6011678d2c9ac20c",
+    "timestamp": "2026-02-09T07:30:55-06:00",
+    "message": "fix: correct MT5 install \u2014 use /auto, search for actual install path",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml"
+    ],
+    "insertions": 119,
+    "deletions": 58,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "a2a20072237b34b1029ce640def7ae3483c79c2d",
+    "timestamp": "2026-02-09T07:14:08-06:00",
+    "message": "fix: use Windows runner for MT5 instead of unavailable Docker image",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml",
+      "trading/mt5_client.py"
+    ],
+    "insertions": 193,
+    "deletions": 132,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "cdf627cbd04a59d0193c9fd2d7e2d04ef2f1c549",
+    "timestamp": "2026-02-09T07:05:39-06:00",
+    "message": "fix: add verify job to HFM trading workflow",
+    "files_changed": [
+      ".github/workflows/hfm_trading.yml"
+    ],
+    "insertions": 27,
+    "deletions": 0,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "643797c1c5daf180b83d353642098ae60a42c6dc",
+    "timestamp": "2026-02-09T06:54:00-06:00",
+    "message": "safety: cap max risk per trade at $1 for initial live testing",
+    "files_changed": [
+      "trading/executor.py"
+    ],
+    "insertions": 8,
+    "deletions": 0,
+    "touches_strategy": false,
+    "touches_executor": true,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "9c769b9acd78476519912f729bbb2eaf0e71259f",
+    "timestamp": "2026-02-09T06:43:55-06:00",
+    "message": "feat: add --local-test mode for Mac/Linux analysis without MT5",
+    "files_changed": [
+      "trading/run_trading.py"
+    ],
+    "insertions": 78,
+    "deletions": 0,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "4bfae4766de89b6b9d317dd732c58934587f48b0",
+    "timestamp": "2026-02-09T06:41:31-06:00",
+    "message": "feat: add HFM MT5 automated trading module",
+    "files_changed": [
+      ".env.example",
+      ".github/workflows/hfm_trading.yml",
+      "trading/__init__.py",
+      "trading/__main__.py",
+      "trading/executor.py",
+      "trading/mt5_client.py",
+      "trading/position_manager.py",
+      "trading/run_trading.py",
+      "trading/symbols.py"
+    ],
+    "insertions": 1998,
+    "deletions": 0,
+    "touches_strategy": false,
+    "touches_executor": true,
+    "touches_config": false,
+    "touches_risk": true
+  },
+  {
+    "sha": "fcaed95d38fa185c9bc71b52cb50b2656f6f1cd9",
+    "timestamp": "2026-02-08T17:30:29-06:00",
+    "message": "fix: backtest now uses correct strategy per asset type",
+    "files_changed": [
+      "bt_engine/engine.py"
+    ],
+    "insertions": 36,
+    "deletions": 2,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "ec3120e741f1c6e25a676a0b8519d46ea6683b7b",
+    "timestamp": "2026-02-08T16:48:30-06:00",
+    "message": "fix: restore dashboard to working state with backward-compatible backtesting API",
+    "files_changed": [
+      "bt_engine/engine.py",
+      "ui/charts.py",
+      "ui/dashboard.py"
+    ],
+    "insertions": 336,
+    "deletions": 144,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "3e6e8fc3dff13d9bc6a724e10553fd9123af7138",
+    "timestamp": "2026-02-08T16:34:14-06:00",
+    "message": "fix: lazy bt_engine import + startup error display + pin Python 3.11",
+    "files_changed": [
+      "requirements.txt",
+      "runtime.txt",
+      "ui/dashboard.py"
+    ],
+    "insertions": 28,
+    "deletions": 19,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "4b0489f125212d30c7277dfc4006722714d08857",
+    "timestamp": "2026-02-08T16:23:09-06:00",
+    "message": "fix: add future annotations for Python 3.9 compatibility",
+    "files_changed": [
+      "data/fetcher.py",
+      "models/signals.py",
+      "strategies/crypto_momentum.py",
+      "strategies/fair_value_gaps.py",
+      "strategies/forex_ict.py",
+      "strategies/leveraged_momentum.py",
+      "strategies/liquidity.py",
+      "strategies/market_structure.py",
+      "strategies/order_blocks.py",
+      "strategies/smc_strategy.py",
+      "trader/decision_engine.py",
+      "utils/helpers.py"
+    ],
+    "insertions": 13,
+    "deletions": 0,
+    "touches_strategy": true,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "429321832d102f3ef183c9d6cecf709ec68d49e5",
+    "timestamp": "2026-02-08T16:15:52-06:00",
+    "message": "fix: make chart overlays resilient to non-ICT strategy types",
+    "files_changed": [
+      "ui/charts.py",
+      "ui/dashboard.py"
+    ],
+    "insertions": 48,
+    "deletions": 25,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "685fc2e57de06705c3ec9d660d069b55a8008a1e",
+    "timestamp": "2026-02-08T16:05:33-06:00",
+    "message": "fix: rename backtesting/ to bt_engine/ to resolve PyPI namespace conflict",
+    "files_changed": [
+      "backtesting/__main__.py",
+      "{backtesting => bt_engine}/__init__.py",
+      "bt_engine/__main__.py",
+      "{backtesting => bt_engine}/engine.py",
+      "{backtesting => bt_engine}/runner.py",
+      "ui/dashboard.py"
+    ],
+    "insertions": 109,
+    "deletions": 94,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "5250951111c34710c0580601715f369d00601bf5",
+    "timestamp": "2026-02-08T15:46:42-06:00",
+    "message": "Fix: force-reload ALL project modules on Streamlit restart",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 2,
+    "deletions": 2,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "fa29367b31cfb2defc81dfb3d94d4c288a9e2490",
+    "timestamp": "2026-02-08T15:39:09-06:00",
+    "message": "Update dashboard UI: auto-select strategy per asset class",
+    "files_changed": [
+      "strategies/crypto_momentum.py",
+      "strategies/leveraged_momentum.py",
+      "ui/charts.py",
+      "ui/dashboard.py"
+    ],
+    "insertions": 159,
+    "deletions": 70,
+    "touches_strategy": true,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "1ffa5b12e81547e46efd5a9fd5294e5a466db1b8",
+    "timestamp": "2026-02-08T15:28:37-06:00",
+    "message": "Expand alert schedule: 6 daily sessions + auto-strategy per asset class",
+    "files_changed": [
+      ".github/workflows/market_alerts.yml"
+    ],
+    "insertions": 151,
+    "deletions": 18,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "6d778061374407090be2be1f8eb271830435b3ba",
+    "timestamp": "2026-02-08T15:11:31-06:00",
+    "message": "Auto-detect strategy per asset class in Telegram bot + updated GitHub Actions",
+    "files_changed": [
+      ".github/workflows/market_alerts.yml",
+      "alerts/telegram_bot.py"
+    ],
+    "insertions": 50,
+    "deletions": 15,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "e66b4ddfdcea9f4336f93d9c4a7e6721029e40eb",
+    "timestamp": "2026-02-08T15:09:41-06:00",
+    "message": "Add multi-strategy framework: backtester + crypto/forex/leveraged/commodity strategies",
+    "files_changed": [
+      "alerts/telegram_bot.py",
+      "backtesting/__main__.py",
+      "backtesting/engine.py",
+      "backtesting/runner.py",
+      "config.py",
+      "models/signals.py",
+      "strategies/crypto_momentum.py",
+      "strategies/forex_ict.py",
+      "strategies/leveraged_momentum.py",
+      "utils/helpers.py"
+    ],
+    "insertions": 2254,
+    "deletions": 290,
+    "touches_strategy": true,
+    "touches_executor": false,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "5dbb769a9f99aee57a9ce8da700b776c437fa768",
+    "timestamp": "2026-02-08T10:23:59-06:00",
+    "message": "Fix mobile: title hidden behind header bar, tighter layout",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 69,
+    "deletions": 68,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "1e9c0b44c8af0a1014ee1dc32b9bd95d01ab94df",
+    "timestamp": "2026-02-08T10:19:59-06:00",
+    "message": "Fix mobile layout \u2014 proper CSS classes for all headers",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 178,
+    "deletions": 63,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "7c738e8f8ea3b9c92fe2637fa079f34c313e9940",
+    "timestamp": "2026-02-08T10:13:05-06:00",
+    "message": "Add interval override for Daily Analysis + mobile responsive UI",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 186,
+    "deletions": 11,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "12b399c0ef6a9c3f68b3355a2093dcce45c8703a",
+    "timestamp": "2026-02-08T09:39:24-06:00",
+    "message": "Add backtesting engine with UI integration",
+    "files_changed": [
+      "backtesting/__init__.py",
+      "backtesting/engine.py",
+      "ui/dashboard.py"
+    ],
+    "insertions": 605,
+    "deletions": 2,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "4ebd8686b09ecb37c5b4b9ae8e35822aeaa8b109",
+    "timestamp": "2026-02-08T09:20:42-06:00",
+    "message": "Restore asset class radio buttons in all modes",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 74,
+    "deletions": 67,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "981fbc841c3d73e9d5786c5e75d38b417194759c",
+    "timestamp": "2026-02-08T09:18:34-06:00",
+    "message": "Fix session switching and add Home button",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 103,
+    "deletions": 72,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "d51f8b5be8bbdbf352fd7fb1589046e2de3f1907",
+    "timestamp": "2026-02-08T09:14:48-06:00",
+    "message": "Add session-based dropdowns for London & NY, expand forex pairs",
+    "files_changed": [
+      ".github/workflows/market_alerts.yml",
+      "ui/dashboard.py"
+    ],
+    "insertions": 58,
+    "deletions": 45,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "d4dc19a546b790f63ce833891fdbc531355d0c51",
+    "timestamp": "2026-02-08T09:00:07-06:00",
+    "message": "Overhaul UI with Daily Analysis mode, fix stock_mode, add forex pairs",
+    "files_changed": [
+      ".github/workflows/market_alerts.yml",
+      "alerts/__init__.py",
+      "ui/__init__.py",
+      "ui/dashboard.py"
+    ],
+    "insertions": 201,
+    "deletions": 125,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "5c2142009cfb8579167205ddda2beaaccb50a8c9",
+    "timestamp": "2026-02-08T08:39:53-06:00",
+    "message": "Add MSTZ (2x inverse MSTR) to stock watchlist",
+    "files_changed": [
+      ".github/workflows/market_alerts.yml"
+    ],
+    "insertions": 2,
+    "deletions": 2,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "68a1547af98017e4c35f91ec9c74e41319a87d3e",
+    "timestamp": "2026-02-08T08:33:03-06:00",
+    "message": "Integrate stock mode into UI dashboard",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 39,
+    "deletions": 6,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "2d0367e962179fb9a6446324014aaa5dab657315",
+    "timestamp": "2026-02-08T08:31:10-06:00",
+    "message": "Add medium-risk stock mode with ATR, trend momentum, and relaxed fakeouts",
+    "files_changed": [
+      ".github/workflows/market_alerts.yml",
+      "alerts/telegram_bot.py",
+      "config.py",
+      "strategies/smc_strategy.py",
+      "utils/helpers.py"
+    ],
+    "insertions": 322,
+    "deletions": 34,
+    "touches_strategy": true,
+    "touches_executor": false,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "5850447e65f2ccdce5e38a0b5bf3c564ddbcd22c",
+    "timestamp": "2026-02-08T08:18:52-06:00",
+    "message": "Move forex to group \u2014 private DM is stocks only",
+    "files_changed": [
+      ".github/workflows/market_alerts.yml"
+    ],
+    "insertions": 8,
+    "deletions": 8,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "cfe871c33139b3e747396d78f6da6320f0f1c5b4",
+    "timestamp": "2026-02-08T08:14:33-06:00",
+    "message": "Split alerts: stocks to private DM, commodities+crypto to group",
+    "files_changed": [
+      ".github/workflows/market_alerts.yml",
+      "alerts/telegram_bot.py"
+    ],
+    "insertions": 53,
+    "deletions": 58,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "e31ba94fd13e807cd88cab02595554da3c649915",
+    "timestamp": "2026-02-08T08:01:24-06:00",
+    "message": "Add anti-fakeout filters across all ICT/SMC strategies",
+    "files_changed": [
+      "alerts/telegram_bot.py",
+      "config.py",
+      "strategies/liquidity.py",
+      "strategies/market_structure.py",
+      "strategies/order_blocks.py",
+      "strategies/smc_strategy.py",
+      "utils/helpers.py"
+    ],
+    "insertions": 417,
+    "deletions": 67,
+    "touches_strategy": true,
+    "touches_executor": false,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "c80af38b4926770c3502de7d29e6b39b57a6dee1",
+    "timestamp": "2026-02-08T07:48:25-06:00",
+    "message": "Filter alerts to only send entries with minimum 1:2 R:R",
+    "files_changed": [
+      "alerts/telegram_bot.py"
+    ],
+    "insertions": 14,
+    "deletions": 4,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "16f43227aa7c945e21e80c49d62959b6f73817a3",
+    "timestamp": "2026-02-08T06:57:43-06:00",
+    "message": "Add session-based trading alerts for London and New York",
+    "files_changed": [
+      ".github/workflows/market_alerts.yml"
+    ],
+    "insertions": 85,
+    "deletions": 36,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "fc809e3b584cf37bdf2f05be07d8647023b4e616",
+    "timestamp": "2026-02-08T06:37:24-06:00",
+    "message": "Add Telegram alert bot + GitHub Actions cron scheduler",
+    "files_changed": [
+      ".env.example",
+      ".github/workflows/market_alerts.yml",
+      ".gitignore",
+      "alerts/__init__.py",
+      "alerts/telegram_bot.py"
+    ],
+    "insertions": 369,
+    "deletions": 0,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "b66551f54cb67b26051ce97dc3c52ece0ab48331",
+    "timestamp": "2026-02-08T06:01:46-06:00",
+    "message": "Add commodities, rewrite sidebar with native widgets, add deployment config",
+    "files_changed": [
+      ".streamlit/config.toml",
+      "config.py",
+      "requirements.txt",
+      "ui/dashboard.py"
+    ],
+    "insertions": 300,
+    "deletions": 564,
+    "touches_strategy": true,
+    "touches_executor": false,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "5b29e2f8ea7ee5f4e138d0c58896c616a2f8f3f4",
+    "timestamp": "2026-02-08T05:46:23-06:00",
+    "message": "Fix missing sidebar and widget state issues",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 11,
+    "deletions": 2,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "5b9c2b9e1f7eeb9662c8c31407ff6c45958df9e6",
+    "timestamp": "2026-02-08T05:42:47-06:00",
+    "message": "Fix config import resolution in dashboard",
+    "files_changed": [
+      "ui/dashboard.py"
+    ],
+    "insertions": 11,
+    "deletions": 3,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "b688a4b99cf1b817b33665823568db3ec59d088b",
+    "timestamp": "2026-02-08T05:40:45-06:00",
+    "message": "Fix intraday period error and add crypto/forex support",
+    "files_changed": [
+      "config.py",
+      "data/fetcher.py",
+      "ui/dashboard.py"
+    ],
+    "insertions": 260,
+    "deletions": 42,
+    "touches_strategy": true,
+    "touches_executor": false,
+    "touches_config": true,
+    "touches_risk": false
+  },
+  {
+    "sha": "51df99588dee794ff51d4fa3fe74b46cf979267c",
+    "timestamp": "2026-02-08T05:32:03-06:00",
+    "message": "Add interactive web dashboard with Streamlit + Plotly",
+    "files_changed": [
+      "README.md",
+      "requirements.txt",
+      "ui/__init__.py",
+      "ui/charts.py",
+      "ui/dashboard.py"
+    ],
+    "insertions": 1298,
+    "deletions": 3,
+    "touches_strategy": false,
+    "touches_executor": false,
+    "touches_config": false,
+    "touches_risk": false
+  },
+  {
+    "sha": "5888f3f4207e9273d8a7a084a9584e3d679567fd",
+    "timestamp": "2026-02-08T05:23:56-06:00",
+    "message": "Initial commit: ICT & Smart Money Concepts stock trader",
+    "files_changed": [
+      ".gitignore",
+      "README.md",
+      "config.py",
+      "data/__init__.py",
+      "data/fetcher.py",
+      "main.py",
+      "models/__init__.py",
+      "models/signals.py",
+      "requirements.txt",
+      "strategies/__init__.py",
+      "strategies/fair_value_gaps.py",
+      "strategies/liquidity.py",
+      "strategies/market_structure.py",
+      "strategies/order_blocks.py",
+      "strategies/smc_strategy.py",
+      "trader/__init__.py",
+      "trader/decision_engine.py",
+      "utils/__init__.py",
+      "utils/helpers.py"
+    ],
+    "insertions": 1954,
+    "deletions": 0,
+    "touches_strategy": true,
+    "touches_executor": false,
+    "touches_config": true,
+    "touches_risk": false
+  }
+]

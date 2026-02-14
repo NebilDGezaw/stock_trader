@@ -15,7 +15,7 @@ Feature categories:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 import numpy as np
@@ -361,7 +361,7 @@ def compute_change_impact(
         return []
 
     df = trades_df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
 
     impacts = []
     for commit in commits:
@@ -374,7 +374,7 @@ def compute_change_impact(
         ]):
             continue
 
-        commit_time = pd.to_datetime(commit.get("timestamp", ""))
+        commit_time = pd.to_datetime(commit.get("timestamp", ""), utc=True)
         if pd.isna(commit_time):
             continue
 

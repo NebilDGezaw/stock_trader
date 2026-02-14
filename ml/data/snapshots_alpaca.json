@@ -1,0 +1,102 @@
+[
+  {
+    "timestamp": "2026-02-02T21:15:16.004050",
+    "system": "alpaca",
+    "equity": 100947.32,
+    "balance": 40378.93,
+    "open_positions": 5,
+    "daily_pnl": 947.32,
+    "daily_pnl_pct": 0.94,
+    "unrealized_pnl": 473.66
+  },
+  {
+    "timestamp": "2026-02-03T21:15:16.004050",
+    "system": "alpaca",
+    "equity": 101212.18,
+    "balance": 40484.87,
+    "open_positions": 8,
+    "daily_pnl": 264.87,
+    "daily_pnl_pct": 0.26,
+    "unrealized_pnl": 132.43
+  },
+  {
+    "timestamp": "2026-02-04T21:15:16.004050",
+    "system": "alpaca",
+    "equity": 101290.59,
+    "balance": 40516.24,
+    "open_positions": 7,
+    "daily_pnl": 78.4,
+    "daily_pnl_pct": 0.08,
+    "unrealized_pnl": 39.2
+  },
+  {
+    "timestamp": "2026-02-05T21:15:16.004050",
+    "system": "alpaca",
+    "equity": 101269.59,
+    "balance": 40507.83,
+    "open_positions": 6,
+    "daily_pnl": -21.0,
+    "daily_pnl_pct": -0.02,
+    "unrealized_pnl": -10.5
+  },
+  {
+    "timestamp": "2026-02-06T21:15:16.004050",
+    "system": "alpaca",
+    "equity": 101762.74,
+    "balance": 40705.1,
+    "open_positions": 3,
+    "daily_pnl": 493.16,
+    "daily_pnl_pct": 0.48,
+    "unrealized_pnl": 246.58
+  },
+  {
+    "timestamp": "2026-02-09T21:15:16.004050",
+    "system": "alpaca",
+    "equity": 101696.98,
+    "balance": 40678.79,
+    "open_positions": 5,
+    "daily_pnl": -65.76,
+    "daily_pnl_pct": -0.06,
+    "unrealized_pnl": -32.88
+  },
+  {
+    "timestamp": "2026-02-10T21:15:16.004050",
+    "system": "alpaca",
+    "equity": 101686.46,
+    "balance": 40674.58,
+    "open_positions": 8,
+    "daily_pnl": -10.52,
+    "daily_pnl_pct": -0.01,
+    "unrealized_pnl": -5.26
+  },
+  {
+    "timestamp": "2026-02-11T21:15:16.004050",
+    "system": "alpaca",
+    "equity": 101486.63,
+    "balance": 40594.65,
+    "open_positions": 7,
+    "daily_pnl": -199.83,
+    "daily_pnl_pct": -0.2,
+    "unrealized_pnl": -99.92
+  },
+  {
+    "timestamp": "2026-02-12T21:15:16.004050",
+    "system": "alpaca",
+    "equity": 102016.85,
+    "balance": 40806.74,
+    "open_positions": 5,
+    "daily_pnl": 530.22,
+    "daily_pnl_pct": 0.52,
+    "unrealized_pnl": 265.11
+  },
+  {
+    "timestamp": "2026-02-13T21:15:16.004050",
+    "system": "alpaca",
+    "equity": 102358.66,
+    "balance": 40943.47,
+    "open_positions": 5,
+    "daily_pnl": 341.82,
+    "daily_pnl_pct": 0.33,
+    "unrealized_pnl": 170.91
+  }
+]
