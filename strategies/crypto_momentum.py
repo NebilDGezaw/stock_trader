@@ -1,18 +1,25 @@
 """
-Crypto Momentum / Trend-Following Strategy
-===========================================
-Designed for crypto assets (BTC, ETH, SOL, XRP, BNB, etc.).
-Crypto trends hard then chops — this strategy catches trends early,
-rides them with trailing stops, and avoids chop via EMA ribbon filter.
+Crypto Trend Momentum Strategy — 4H Candles
+============================================
+GROUND-UP REBUILD — simplified and more robust.
 
-Components:
-1. EMA ribbon (9/21/50) — trend alignment + macro filter
-2. RSI with crypto zones (40/60) + divergence detection
-3. Volume spikes + OBV trend confirmation
-4. Bollinger Band squeeze → breakout
-5. MACD crossover + histogram momentum
-6. Exhaustion detection (consecutive same-direction days)
-7. ATR-based dynamic SL/TP with trailing stop
+Philosophy: "Catch the trend, ride the breakout, get out early if wrong"
+    - 4H candles (less noise than 1H, more timely than 1D)
+    - EMA trend filter (20/50/200)
+    - Bollinger Band breakout entries
+    - MACD momentum confirmation
+    - Volume spike confirmation
+    - RSI divergence as bonus signal
+    - 2x ATR SL, 3x ATR TP — natural 1:1.5 R:R
+    - Focus on BTC and ETH only (highest liquidity)
+
+Entry logic:
+    1. Price above 50 EMA = only buy. Price below = only sell.
+    2. BB breakout (close outside band) + volume spike = entry
+    3. MACD confirms direction
+    4. EMA ribbon alignment gives trend strength
+    5. RSI divergence adds conviction
+    6. Exhaustion detection (consecutive same-direction) = caution
 """
 from __future__ import annotations
 
@@ -33,8 +40,8 @@ from utils.helpers import (
 
 class CryptoMomentumStrategy:
     """
-    Trend-following momentum strategy tuned for crypto.
-    Same interface as SMCStrategy / LeveragedMomentumStrategy.
+    Trend-following momentum strategy for crypto (4H candles).
+    Same interface as SMCStrategy / ForexICTStrategy.
     """
 
     def __init__(self, df: pd.DataFrame, ticker: str = "UNKNOWN",
@@ -53,12 +60,12 @@ class CryptoMomentumStrategy:
             self._generate_hold()
             return self
 
-        self._analyze_ema_ribbon()
+        self._analyze_ema_trend()
+        self._analyze_ema_crossover()
         self._analyze_rsi()
         self._analyze_rsi_divergence()
         self._analyze_volume()
-        self._analyze_obv()
-        self._analyze_bollinger_squeeze()
+        self._analyze_bollinger_breakout()
         self._analyze_macd()
         self._analyze_exhaustion()
         self._compute_score()
@@ -91,54 +98,61 @@ class CryptoMomentumStrategy:
 
     # ── signal components ─────────────────────────────────
 
-    def _analyze_ema_ribbon(self):
-        """EMA ribbon: 9/21/50. Full alignment = strong trend. 50 EMA = macro filter."""
+    def _analyze_ema_trend(self):
+        """EMA ribbon: 20/50/200 for trend structure."""
         cfg = self.cfg
-        ema_fast = compute_ema(self.df, cfg["ema_fast"])
-        ema_mid = compute_ema(self.df, cfg["ema_mid"])
-        ema_slow = compute_ema(self.df, cfg["ema_slow"])
+        ema_fast = compute_ema(self.df, cfg["ema_fast"])    # 9
+        ema_mid = compute_ema(self.df, cfg["ema_mid"])      # 21
+        ema_slow = compute_ema(self.df, cfg["ema_slow"])    # 50
         ts = self.df.index[-1]
         price = self.df.iloc[-1]["Close"]
 
-        ef = ema_fast.iloc[-1]
-        em = ema_mid.iloc[-1]
-        es = ema_slow.iloc[-1]
+        ef = float(ema_fast.iloc[-1])
+        em = float(ema_mid.iloc[-1])
+        es = float(ema_slow.iloc[-1])
 
         # Full bullish alignment: 9 > 21 > 50
         if ef > em > es:
             self._add_signal(SignalType.EMA_RIBBON, ts, price,
-                             MarketBias.BULLISH, 2,
+                             MarketBias.BULLISH, 3,
                              f"EMA ribbon fully bullish ({ef:.0f} > {em:.0f} > {es:.0f})")
-        # Partial bullish: price above 50 and fast above mid
         elif ef > em and price > es:
             self._add_signal(SignalType.EMA_RIBBON, ts, price,
-                             MarketBias.BULLISH, 1,
-                             f"EMA partial bullish, above 50 EMA")
-        # Full bearish alignment: 9 < 21 < 50
+                             MarketBias.BULLISH, 2,
+                             "EMA partial bullish, price above 50 EMA")
         elif ef < em < es:
             self._add_signal(SignalType.EMA_RIBBON, ts, price,
-                             MarketBias.BEARISH, 2,
+                             MarketBias.BEARISH, 3,
                              f"EMA ribbon fully bearish ({ef:.0f} < {em:.0f} < {es:.0f})")
-        # Partial bearish: price below 50 and fast below mid
         elif ef < em and price < es:
             self._add_signal(SignalType.EMA_RIBBON, ts, price,
-                             MarketBias.BEARISH, 1,
-                             f"EMA partial bearish, below 50 EMA")
+                             MarketBias.BEARISH, 2,
+                             "EMA partial bearish, price below 50 EMA")
 
-        # EMA crossovers (fast crossing mid)
-        if len(ema_fast) >= 2 and len(ema_mid) >= 2:
-            prev_above = ema_fast.iloc[-2] > ema_mid.iloc[-2]
-            curr_above = ef > em
-            if curr_above and not prev_above:
-                self._add_signal(SignalType.EMA_CROSSOVER, ts, price,
-                                 MarketBias.BULLISH, 1,
-                                 f"EMA {cfg['ema_fast']}/{cfg['ema_mid']} bullish cross")
-            elif not curr_above and prev_above:
-                self._add_signal(SignalType.EMA_CROSSOVER, ts, price,
-                                 MarketBias.BEARISH, 1,
-                                 f"EMA {cfg['ema_fast']}/{cfg['ema_mid']} bearish cross")
+    def _analyze_ema_crossover(self):
+        """Recent EMA crossover for momentum timing."""
+        cfg = self.cfg
+        ema_fast = compute_ema(self.df, cfg["ema_fast"])
+        ema_mid = compute_ema(self.df, cfg["ema_mid"])
+        ts = self.df.index[-1]
+        price = self.df.iloc[-1]["Close"]
+
+        if len(ema_fast) < 2 or len(ema_mid) < 2:
+            return
+
+        prev_above = float(ema_fast.iloc[-2]) > float(ema_mid.iloc[-2])
+        curr_above = float(ema_fast.iloc[-1]) > float(ema_mid.iloc[-1])
+        if curr_above and not prev_above:
+            self._add_signal(SignalType.EMA_CROSSOVER, ts, price,
+                             MarketBias.BULLISH, 2,
+                             f"EMA {cfg['ema_fast']}/{cfg['ema_mid']} bullish cross")
+        elif not curr_above and prev_above:
+            self._add_signal(SignalType.EMA_CROSSOVER, ts, price,
+                             MarketBias.BEARISH, 2,
+                             f"EMA {cfg['ema_fast']}/{cfg['ema_mid']} bearish cross")
 
     def _analyze_rsi(self):
+        """RSI zones — wider for crypto volatility."""
         cfg = self.cfg
         rsi_series = compute_rsi_series(self.df, cfg["rsi_period"])
         rsi = float(rsi_series.iloc[-1])
@@ -148,7 +162,7 @@ class CryptoMomentumStrategy:
         if rsi <= cfg["rsi_extreme_oversold"]:
             self._add_signal(SignalType.RSI_SIGNAL, ts, price,
                              MarketBias.BULLISH, 2,
-                             f"🔥 RSI extreme oversold ({rsi:.1f})")
+                             f"RSI extreme oversold ({rsi:.1f})")
         elif rsi <= cfg["rsi_oversold"]:
             self._add_signal(SignalType.RSI_SIGNAL, ts, price,
                              MarketBias.BULLISH, 1,
@@ -156,13 +170,14 @@ class CryptoMomentumStrategy:
         elif rsi >= cfg["rsi_extreme_overbought"]:
             self._add_signal(SignalType.RSI_SIGNAL, ts, price,
                              MarketBias.BEARISH, 2,
-                             f"🔥 RSI extreme overbought ({rsi:.1f})")
+                             f"RSI extreme overbought ({rsi:.1f})")
         elif rsi >= cfg["rsi_overbought"]:
             self._add_signal(SignalType.RSI_SIGNAL, ts, price,
                              MarketBias.BEARISH, 1,
                              f"RSI overbought ({rsi:.1f})")
 
     def _analyze_rsi_divergence(self):
+        """RSI divergence as high-conviction bonus signal."""
         cfg = self.cfg
         rsi_series = compute_rsi_series(self.df, cfg["rsi_period"])
         ts = self.df.index[-1]
@@ -179,6 +194,7 @@ class CryptoMomentumStrategy:
                              "RSI bearish divergence — price higher high, RSI lower high")
 
     def _analyze_volume(self):
+        """Volume spike confirmation."""
         cfg = self.cfg
         if "Volume" not in self.df.columns:
             return
@@ -201,45 +217,20 @@ class CryptoMomentumStrategy:
             price_change = price - self.df.iloc[-2]["Close"]
             bias = MarketBias.BULLISH if price_change > 0 else MarketBias.BEARISH
             self._add_signal(SignalType.VOLUME_MOMENTUM, ts, price,
-                             bias, 1,
-                             f"Volume spike {vol_ratio:.1f}x avg — {'bullish' if price_change > 0 else 'bearish'}")
-            if vol_ratio >= 3.0:
-                self._add_signal(SignalType.VOLUME_MOMENTUM, ts, price,
-                                 bias, 1,
-                                 f"🔥 Extreme volume {vol_ratio:.1f}x — institutional")
+                             bias, 2,
+                             f"Volume spike {vol_ratio:.1f}x avg — institutional interest")
 
-    def _analyze_obv(self):
-        """OBV trend as confirmation — rising OBV = bullish, falling = bearish."""
-        if "Volume" not in self.df.columns:
-            return
-
-        ts = self.df.index[-1]
-        price = self.df.iloc[-1]["Close"]
-        obv = compute_obv(self.df)
-
-        if len(obv) < 10:
-            return
-
-        # OBV trend: compare 5-period EMA of OBV
-        obv_ema = obv.ewm(span=5, adjust=False).mean()
-        if obv_ema.iloc[-1] > obv_ema.iloc[-5] and obv.iloc[-1] > obv.iloc[-5]:
-            self._add_signal(SignalType.OBV_TREND, ts, price,
-                             MarketBias.BULLISH, 1,
-                             "OBV trending up — buying pressure")
-        elif obv_ema.iloc[-1] < obv_ema.iloc[-5] and obv.iloc[-1] < obv.iloc[-5]:
-            self._add_signal(SignalType.OBV_TREND, ts, price,
-                             MarketBias.BEARISH, 1,
-                             "OBV trending down — selling pressure")
-
-    def _analyze_bollinger_squeeze(self):
+    def _analyze_bollinger_breakout(self):
+        """BB breakout: price closing outside bands = momentum move."""
         cfg = self.cfg
         upper, middle, lower = compute_bollinger_bands(
             self.df, cfg["bb_period"], cfg["bb_std"])
         ts = self.df.index[-1]
         price = self.df.iloc[-1]["Close"]
 
+        # BB squeeze detected = volatility expansion imminent
         if bb_squeeze_detected(self.df, cfg["bb_period"], cfg["bb_std"]):
-            if price > middle.iloc[-1]:
+            if price > float(middle.iloc[-1]):
                 self._add_signal(SignalType.BB_SQUEEZE, ts, price,
                                  MarketBias.BULLISH, 2,
                                  "BB squeeze breakout — bullish expansion")
@@ -248,17 +239,18 @@ class CryptoMomentumStrategy:
                                  MarketBias.BEARISH, 2,
                                  "BB squeeze breakout — bearish expansion")
 
-        # Standard band touches
-        if price <= lower.iloc[-1]:
+        # Close above upper band = strong bullish
+        if price >= float(upper.iloc[-1]):
             self._add_signal(SignalType.BOLLINGER_BAND, ts, price,
                              MarketBias.BULLISH, 1,
-                             f"Price at lower BB ({lower.iloc[-1]:.2f})")
-        elif price >= upper.iloc[-1]:
+                             f"Price above upper BB ({upper.iloc[-1]:.0f}) — bullish breakout")
+        elif price <= float(lower.iloc[-1]):
             self._add_signal(SignalType.BOLLINGER_BAND, ts, price,
                              MarketBias.BEARISH, 1,
-                             f"Price at upper BB ({upper.iloc[-1]:.2f})")
+                             f"Price below lower BB ({lower.iloc[-1]:.0f}) — bearish breakout")
 
     def _analyze_macd(self):
+        """MACD crossover + histogram momentum."""
         cfg = self.cfg
         macd_line, signal_line, histogram = compute_macd(
             self.df, cfg["macd_fast"], cfg["macd_slow"], cfg["macd_signal"])
@@ -268,9 +260,8 @@ class CryptoMomentumStrategy:
         if len(macd_line) < 2:
             return
 
-        # MACD crossover
-        prev_above = macd_line.iloc[-2] > signal_line.iloc[-2]
-        curr_above = macd_line.iloc[-1] > signal_line.iloc[-1]
+        prev_above = float(macd_line.iloc[-2]) > float(signal_line.iloc[-2])
+        curr_above = float(macd_line.iloc[-1]) > float(signal_line.iloc[-1])
 
         if curr_above and not prev_above:
             self._add_signal(SignalType.MACD_CROSSOVER, ts, price,
@@ -281,9 +272,9 @@ class CryptoMomentumStrategy:
                              MarketBias.BEARISH, 2,
                              "MACD bearish crossover")
 
-        # Histogram momentum (growing = strengthening)
+        # Histogram acceleration
         if len(histogram) >= 3:
-            h = histogram.iloc[-3:].values
+            h = [float(histogram.iloc[i]) for i in range(-3, 0)]
             if h[-1] > h[-2] > h[-3] and h[-1] > 0:
                 self._add_signal(SignalType.MACD_CROSSOVER, ts, price,
                                  MarketBias.BULLISH, 1,
@@ -294,7 +285,7 @@ class CryptoMomentumStrategy:
                                  "MACD histogram accelerating bearish")
 
     def _analyze_exhaustion(self):
-        """Consecutive same-direction days as exhaustion proxy."""
+        """Consecutive same-direction candles as exhaustion warning."""
         cfg = self.cfg
         threshold = cfg["exhaustion_consecutive_days"]
         ts = self.df.index[-1]
@@ -303,7 +294,6 @@ class CryptoMomentumStrategy:
         if len(self.df) < threshold + 1:
             return
 
-        # Count consecutive green/red days ending at current bar
         consecutive_green = 0
         consecutive_red = 0
 
@@ -323,11 +313,11 @@ class CryptoMomentumStrategy:
         if consecutive_green >= threshold:
             self._add_signal(SignalType.EXHAUSTION_WARNING, ts, price,
                              MarketBias.BEARISH, 1,
-                             f"⚠️ {consecutive_green} consecutive green days — exhaustion warning")
+                             f"{consecutive_green} consecutive green candles — exhaustion warning")
         elif consecutive_red >= threshold:
             self._add_signal(SignalType.EXHAUSTION_WARNING, ts, price,
                              MarketBias.BULLISH, 1,
-                             f"⚠️ {consecutive_red} consecutive red days — exhaustion warning")
+                             f"{consecutive_red} consecutive red candles — exhaustion warning")
 
     # ── scoring & setup ───────────────────────────────────
 
@@ -365,26 +355,29 @@ class CryptoMomentumStrategy:
 
         # 50 EMA macro filter: don't buy below 50 EMA, don't sell above it
         ema_slow = compute_ema(self.df, cfg["ema_slow"])
-        if action in (TradeAction.BUY, TradeAction.STRONG_BUY) and price < ema_slow.iloc[-1]:
+        if action in (TradeAction.BUY, TradeAction.STRONG_BUY) and price < float(ema_slow.iloc[-1]):
             action = TradeAction.HOLD
-        elif action in (TradeAction.SELL, TradeAction.STRONG_SELL) and price > ema_slow.iloc[-1]:
+        elif action in (TradeAction.SELL, TradeAction.STRONG_SELL) and price > float(ema_slow.iloc[-1]):
             action = TradeAction.HOLD
 
-        # ATR-based SL/TP
+        # ATR-based SL/TP: wider for crypto
         atr = compute_atr(self.df, cfg["atr_period"])
         current_atr = float(atr.iloc[-1])
         if current_atr == 0:
             current_atr = price * 0.02
 
+        sl_mult = cfg["atr_sl_multiplier"]  # 2.0
+        tp_mult = cfg["atr_tp_multiplier"]  # 3.0
+
         if self._bias == MarketBias.BULLISH:
-            sl = price - (current_atr * cfg["atr_sl_multiplier"])
-            tp = price + (current_atr * cfg["atr_tp_multiplier"])
+            sl = price - (current_atr * sl_mult)
+            tp = price + (current_atr * tp_mult)
         elif self._bias == MarketBias.BEARISH:
-            sl = price + (current_atr * cfg["atr_sl_multiplier"])
-            tp = price - (current_atr * cfg["atr_tp_multiplier"])
+            sl = price + (current_atr * sl_mult)
+            tp = price - (current_atr * tp_mult)
         else:
-            sl = price - (current_atr * cfg["atr_sl_multiplier"])
-            tp = price + (current_atr * cfg["atr_tp_multiplier"])
+            sl = price - (current_atr * sl_mult)
+            tp = price + (current_atr * tp_mult)
 
         risk_per_share = abs(price - sl)
         reward_per_share = abs(tp - price)

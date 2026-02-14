@@ -197,7 +197,59 @@ class MT5Client:
             )
         else:
             logger.info("Connected to MT5 (account info not yet available)")
+
+        # ── Quote warmup: wait for symbols to load ────────
+        # On ephemeral VMs (GitHub Actions), MT5 needs time to
+        # download quotes from the broker.  We check a reference
+        # symbol (EURUSD) and wait until its bid > 0.
+        self._warmup_quotes(warmup_symbols=["EURUSD", "XAUUSD"])
+
         return True
+
+    def _warmup_quotes(
+        self,
+        warmup_symbols: list[str] = None,
+        max_wait: int = 90,
+        check_interval: int = 5,
+    ):
+        """
+        Wait for MT5 to load live quotes after fresh connection.
+
+        On GitHub Actions ephemeral VMs, MT5 starts fresh and may
+        return bid=0, ask=0 for several seconds.  We block here
+        until at least one reference symbol has a valid bid > 0.
+        """
+        import time
+
+        if not warmup_symbols:
+            warmup_symbols = ["EURUSD"]
+
+        # Enable all warmup symbols
+        for sym in warmup_symbols:
+            mt5.symbol_select(sym, True)
+
+        logger.info(
+            f"Quote warmup: waiting for {warmup_symbols} to load "
+            f"(max {max_wait}s)..."
+        )
+
+        start = time.time()
+        while time.time() - start < max_wait:
+            for sym in warmup_symbols:
+                tick = mt5.symbol_info_tick(sym)
+                if tick and tick.bid > 0 and tick.ask > 0:
+                    elapsed = time.time() - start
+                    logger.info(
+                        f"Quote warmup OK: {sym} bid={tick.bid:.5f} "
+                        f"ask={tick.ask:.5f} ({elapsed:.0f}s)"
+                    )
+                    return
+            time.sleep(check_interval)
+
+        logger.warning(
+            f"Quote warmup TIMEOUT after {max_wait}s — quotes may still "
+            f"be stale. Proceeding with caution."
+        )
 
     def disconnect(self):
         """Shut down MT5 terminal connection."""
@@ -309,6 +361,25 @@ class MT5Client:
                 success=False,
                 message=f"No tick data for {symbol}",
             )
+
+        # ── Validate tick data ────────────────────────────
+        if tick.bid <= 0 or tick.ask <= 0:
+            return OrderResult(
+                success=False,
+                message=f"Stale quotes for {symbol}: bid={tick.bid}, ask={tick.ask}. "
+                        f"Skipping order to prevent garbage execution.",
+            )
+
+        # Sanity: spread shouldn't be more than 5% of price
+        if tick.bid > 0:
+            spread_pct = (tick.ask - tick.bid) / tick.bid
+            if spread_pct > 0.05:
+                return OrderResult(
+                    success=False,
+                    message=f"Abnormal spread for {symbol}: "
+                            f"bid={tick.bid}, ask={tick.ask}, "
+                            f"spread={spread_pct*100:.1f}%. Skipping.",
+                )
 
         is_buy = action.upper() in ("BUY", "STRONG BUY")
         order_type = mt5.ORDER_TYPE_BUY if is_buy else mt5.ORDER_TYPE_SELL

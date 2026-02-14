@@ -3,33 +3,26 @@ name: HFM Auto-Trader
 on:
   schedule:
     # ── ENTRY sessions (weekdays) ──
-    - cron: "0 2 * * 1-5"      # ASIAN CRYPTO entry (02:00 UTC)
+    # Reduced frequency: 4H candles only need 2-3 checks per day
     - cron: "0 8 * * 1-5"      # LONDON OPEN entry
-    - cron: "0 13 * * 1-5"     # OVERLAP entry
+    - cron: "0 13 * * 1-5"     # OVERLAP entry (London/NY overlap)
     - cron: "30 14 * * 1-5"    # NY OPEN entry
 
     # ── ENTRY sessions (weekends — crypto only) ──
     - cron: "0 2 * * 0,6"      # ASIAN CRYPTO entry (Sat/Sun)
-    - cron: "0 10 * * 0,6"     # MID-DAY CRYPTO entry (Sat/Sun)
-    - cron: "0 18 * * 0,6"     # EVENING CRYPTO entry (Sat/Sun)
+    - cron: "0 14 * * 0,6"     # AFTERNOON CRYPTO entry (Sat/Sun)
 
-    # ── MONITOR (weekdays — hourly during active hours) ──
-    - cron: "0 9 * * 1-5"      # monitor after London entry
-    - cron: "0 10 * * 1-5"     # monitor
-    - cron: "0 11 * * 1-5"     # monitor
-    - cron: "0 12 * * 1-5"     # monitor
-    - cron: "0 14 * * 1-5"     # monitor before NY
-    - cron: "0 15 * * 1-5"     # monitor
-    - cron: "0 16 * * 1-5"     # monitor
-    - cron: "0 17 * * 1-5"     # monitor
-    - cron: "0 18 * * 1-5"     # monitor
-    - cron: "0 19 * * 1-5"     # monitor
-    - cron: "0 20 * * 1-5"     # monitor (late NY)
+    # ── MONITOR (weekdays — every 4 hours, not hourly) ──
+    # With 4H candles and wider stops, hourly monitoring is unnecessary
+    # and wastes GitHub Actions minutes + risks stale quote closures
+    - cron: "0 10 * * 1-5"     # monitor after London
+    - cron: "0 14 * * 1-5"     # monitor overlap
+    - cron: "0 18 * * 1-5"     # monitor late NY
+    - cron: "0 22 * * 1-5"     # monitor end of day
 
     # ── MONITOR (weekends — crypto positions) ──
-    - cron: "0 6 * * 0,6"      # weekend monitor
-    - cron: "0 14 * * 0,6"     # weekend monitor
-    - cron: "0 22 * * 0,6"     # weekend monitor
+    - cron: "0 8 * * 0,6"      # weekend monitor
+    - cron: "0 20 * * 0,6"     # weekend monitor
 
     # ── EOD SUMMARY ──
     - cron: "30 20 * * 1-5"    # weekday EOD summary
@@ -56,9 +49,6 @@ on:
         type: boolean
 
 # NOTE: HFM_MT5_SERVER secret must be IP:port (e.g. 18.134.38.113:1950)
-
-# ── Reusable steps anchor ──────────────────────────────
-# (GitHub Actions doesn't support YAML anchors, so we repeat)
 
 jobs:
   # ═══════════════════════════════════════════════════════
@@ -284,10 +274,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     if: >-
-      github.event.schedule == '0 2 * * 1-5' ||
       github.event.schedule == '0 2 * * 0,6' ||
-      github.event.schedule == '0 10 * * 0,6' ||
-      github.event.schedule == '0 18 * * 0,6' ||
+      github.event.schedule == '0 14 * * 0,6' ||
       (github.event.inputs.mode == 'entry' && github.event.inputs.session == 'asian_crypto')
     steps:
       - uses: actions/checkout@v4
@@ -327,27 +315,19 @@ jobs:
         run: python -m trading.run_trading --mode entry --session asian_crypto --mt5-path "C:\Program Files\MetaTrader 5\terminal64.exe"
 
   # ═══════════════════════════════════════════════════════
-  #  MONITOR (hourly during active hours + weekends)
+  #  MONITOR (every 4 hours instead of hourly)
   # ═══════════════════════════════════════════════════════
 
   monitor:
     runs-on: windows-latest
     timeout-minutes: 20
     if: >-
-      github.event.schedule == '0 9 * * 1-5' ||
       github.event.schedule == '0 10 * * 1-5' ||
-      github.event.schedule == '0 11 * * 1-5' ||
-      github.event.schedule == '0 12 * * 1-5' ||
       github.event.schedule == '0 14 * * 1-5' ||
-      github.event.schedule == '0 15 * * 1-5' ||
-      github.event.schedule == '0 16 * * 1-5' ||
-      github.event.schedule == '0 17 * * 1-5' ||
       github.event.schedule == '0 18 * * 1-5' ||
-      github.event.schedule == '0 19 * * 1-5' ||
-      github.event.schedule == '0 20 * * 1-5' ||
-      github.event.schedule == '0 6 * * 0,6' ||
-      github.event.schedule == '0 14 * * 0,6' ||
-      github.event.schedule == '0 22 * * 0,6' ||
+      github.event.schedule == '0 22 * * 1-5' ||
+      github.event.schedule == '0 8 * * 0,6' ||
+      github.event.schedule == '0 20 * * 0,6' ||
       github.event.inputs.mode == 'monitor'
     steps:
       - uses: actions/checkout@v4

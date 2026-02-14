@@ -26,6 +26,7 @@ from strategies.smc_strategy import SMCStrategy
 from strategies.leveraged_momentum import LeveragedMomentumStrategy
 from strategies.crypto_momentum import CryptoMomentumStrategy
 from strategies.forex_ict import ForexICTStrategy
+from strategies.commodity_strategy import CommodityStrategy
 from models.signals import TradeAction, MarketBias
 from utils.helpers import compute_atr
 
@@ -56,7 +57,7 @@ def _run_strategy(df, ticker: str, stock_mode: bool = False):
     elif asset_type == "forex":
         return ForexICTStrategy(df, ticker=ticker).run()
     elif asset_type == "commodity":
-        return CryptoMomentumStrategy(df, ticker=ticker).run()
+        return CommodityStrategy(df, ticker=ticker).run()
     else:
         return SMCStrategy(df, ticker=ticker, stock_mode=stock_mode).run()
 

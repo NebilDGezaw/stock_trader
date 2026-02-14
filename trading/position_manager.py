@@ -8,6 +8,13 @@ Handles:
     - Position status reporting for Telegram
 
 Designed to run periodically via GitHub Actions (every few hours).
+
+CRITICAL: Quote validation
+    On ephemeral GitHub Actions VMs, MT5 symbol quotes may not be
+    populated immediately after connection.  bid/ask can be 0 or stale.
+    We MUST validate current_price before using it for R-multiple
+    calculations or trailing stop placement.  When quotes are bad,
+    we fall back to the server-side pos.profit for safety decisions.
 """
 
 from __future__ import annotations
@@ -44,27 +51,117 @@ class PositionUpdate:
 
 
 # ──────────────────────────────────────────────────────────
+#  Quote Validation
+# ──────────────────────────────────────────────────────────
+
+def _validate_price(current_price: float, entry_price: float,
+                    symbol: str, max_deviation_pct: float = 0.15) -> bool:
+    """
+    Validate that a quote price is reasonable.
+
+    Returns False if:
+        - Price is zero or negative
+        - Price deviates more than max_deviation_pct from entry
+          (e.g., 15% default — catches stale/garbage quotes)
+
+    For forex (price < $10), we use 5% since forex doesn't move 15%.
+    For crypto, we allow 20% since crypto is volatile.
+    """
+    if current_price <= 0:
+        logger.warning(
+            f"STALE QUOTE: {symbol} bid/ask is {current_price} (zero/negative)"
+        )
+        return False
+
+    if entry_price <= 0:
+        return True  # Can't validate without entry, assume ok
+
+    deviation = abs(current_price - entry_price) / entry_price
+
+    # Adjust threshold based on asset class
+    if entry_price < 10:
+        # Forex (prices like 1.xxxxx) or XRP — 5% max
+        threshold = 0.05
+    elif entry_price > 10000:
+        # BTC — allow 20%
+        threshold = 0.20
+    else:
+        threshold = max_deviation_pct
+
+    if deviation > threshold:
+        logger.warning(
+            f"STALE QUOTE: {symbol} current={current_price:.5f} vs "
+            f"entry={entry_price:.5f} — {deviation*100:.1f}% deviation "
+            f"(threshold={threshold*100:.0f}%). Using server PnL instead."
+        )
+        return False
+
+    return True
+
+
+def _compute_r_from_pnl(pos: PositionInfo) -> Optional[float]:
+    """
+    Compute R-multiple from server-side PnL when quotes are unreliable.
+
+    R = PnL / risk_amount_per_1R
+    risk_amount_per_1R ≈ |entry - SL| × volume × contract_size × pip_value
+
+    Since we don't have contract details here, we estimate from the SL
+    distance and the position's actual risk:
+        risk_in_price = |entry - SL|
+        pnl_at_1r ≈ abs(profit when price moves risk_in_price distance)
+
+    For a rough estimate: if the position profit is -$50 and we know the
+    SL distance is X pips at Y lots, we can back-calculate R.
+
+    Simpler approach: use the fact that at exactly SL hit, PnL = -1R.
+    So 1R (in dollars) ≈ the dollar loss at SL.  We can estimate this
+    as: risk_dollars ≈ |entry - SL| / entry × notional_value.
+    But without contract_size, just return the raw PnL sign for
+    safety decisions.
+    """
+    if pos.sl <= 0:
+        return None
+
+    risk_distance = abs(pos.open_price - pos.sl)
+    if risk_distance == 0:
+        return None
+
+    # Estimate R from PnL direction and magnitude
+    # This is approximate but MUCH better than using garbage quotes
+    # We know that at -1R, profit should be approximately -(risk_per_pip × volume × risk_pips)
+    # Without full contract info, use a heuristic:
+    # If PnL is positive, R is positive. If very negative relative to likely risk, flag it.
+    # For safety decisions, the sign and rough magnitude is what matters.
+
+    # Use the PnL itself — for max_loss_r check, if PnL < 0 and large,
+    # we should still close. For trailing, if PnL > 0, we should still trail.
+    return None  # Signal to caller to use PnL-based logic instead
+
+
+# ──────────────────────────────────────────────────────────
 #  ATR helper (works without full strategy import)
 # ──────────────────────────────────────────────────────────
 
 def _get_current_atr(ticker_yf: str, period: int = 14) -> float:
     """Fetch recent data and compute ATR for a ticker."""
     try:
+        from utils.helpers import compute_atr
+
         asset_type = get_asset_type(ticker_yf)
         if asset_type == "forex":
             df = StockDataFetcher(ticker_yf).fetch(period="1mo", interval="1h")
+        elif asset_type == "crypto":
+            df = StockDataFetcher(ticker_yf).fetch(period="3mo", interval="4h")
         else:
             df = StockDataFetcher(ticker_yf).fetch(period="3mo", interval="1d")
 
         if df is None or len(df) < period + 1:
             return 0.0
 
-        high = df["High"]
-        low = df["Low"]
-        close = df["Close"].shift(1)
-        tr = (high - low).combine(abs(high - close), max).combine(abs(low - close), max)
-        atr = tr.rolling(period).mean().iloc[-1]
-        return float(atr) if atr == atr else 0.0  # NaN check
+        atr_series = compute_atr(df, period=period)
+        atr = float(atr_series.iloc[-1])
+        return atr if atr == atr else 0.0  # NaN check
     except Exception as e:
         logger.warning(f"ATR fetch failed for {ticker_yf}: {e}")
         return 0.0
@@ -78,7 +175,9 @@ def _rerun_strategy(ticker_yf: str) -> Optional[TradeAction]:
         asset_type = _detect_asset_type(ticker_yf)
 
         if asset_type == "forex":
-            df = StockDataFetcher(ticker_yf).fetch(period="1mo", interval="1h")
+            df = StockDataFetcher(ticker_yf).fetch(period="3mo", interval="4h")
+        elif asset_type == "crypto":
+            df = StockDataFetcher(ticker_yf).fetch(period="3mo", interval="4h")
         else:
             df = StockDataFetcher(ticker_yf).fetch(period="6mo", interval="1d")
 
@@ -206,28 +305,52 @@ class PositionManager:
             )
 
     def _manage_position(self, pos: PositionInfo) -> Optional[PositionUpdate]:
-        """Manage a single position: age/loss limits, trail, partial close, or reversal close."""
+        """
+        Manage a single position with VALIDATED quotes.
+
+        CRITICAL: On ephemeral VMs, MT5 quotes may be stale/zero.
+        We validate current_price before using it.  When quotes are bad,
+        we fall back to server-side pos.profit for safety decisions and
+        skip trailing stop / partial close (which need accurate prices).
+        """
         ticker_yf = to_yfinance(pos.symbol)
         is_buy = pos.type == "BUY"
 
-        # Get current price
+        # ── Get and VALIDATE current price ────────────────
         sym_info = self.client.get_symbol_info(pos.symbol)
         if sym_info is None:
+            logger.warning(f"No symbol info for {pos.symbol} — skipping")
             return None
-        current_price = sym_info["bid"] if is_buy else sym_info["ask"]
 
-        # Calculate R-multiple (how many R's of profit)
+        raw_price = sym_info["bid"] if is_buy else sym_info["ask"]
+        price_valid = _validate_price(raw_price, pos.open_price, pos.symbol)
+        current_price = raw_price if price_valid else 0.0
+
+        # Calculate risk (SL distance)
         risk = abs(pos.open_price - pos.sl) if pos.sl > 0 else 0
         if risk == 0:
-            logger.warning(f"Position {pos.ticket} has no SL — skipping")
+            logger.warning(f"Position {pos.ticket} {pos.symbol} has no SL — skipping")
             return None
 
-        if is_buy:
-            profit_distance = current_price - pos.open_price
+        # Calculate R-multiple — use validated price OR fall back to PnL
+        if price_valid and current_price > 0:
+            if is_buy:
+                profit_distance = current_price - pos.open_price
+            else:
+                profit_distance = pos.open_price - current_price
+            r_multiple = profit_distance / risk
         else:
-            profit_distance = pos.open_price - current_price
-
-        r_multiple = profit_distance / risk
+            # FALLBACK: estimate R from server-side PnL
+            # 1R in dollars ≈ risk_distance × volume × contract_size × pip_value
+            # Since we don't have contract details, use a conservative approach:
+            # Just use PnL sign + magnitude relative to a $500 estimate per 1R
+            # This prevents the garbage-quote-triggered closures
+            estimated_1r_dollars = max(abs(pos.profit) * 0.3, 50.0)  # rough floor
+            r_multiple = pos.profit / estimated_1r_dollars if estimated_1r_dollars > 0 else 0
+            logger.info(
+                f"Using PnL-based R estimate for {pos.symbol}: "
+                f"PnL=${pos.profit:.2f}, estimated R={r_multiple:.2f}"
+            )
 
         # Calculate position age in hours
         try:
@@ -236,40 +359,53 @@ class PositionManager:
         except Exception:
             age_hours = 0.0
 
+        price_tag = f"current={current_price:.5f}" if price_valid else "current=STALE"
         logger.info(
             f"Position {pos.ticket} {pos.symbol} {pos.type}: "
-            f"entry={pos.open_price}, current={current_price}, "
+            f"entry={pos.open_price}, {price_tag}, "
             f"SL={pos.sl}, TP={pos.tp}, R={r_multiple:.2f}, "
             f"PnL={pos.profit:.2f}, age={age_hours:.1f}h"
         )
 
-        # ── Step 0a: MAX LOSS CIRCUIT-BREAKER ────────────
-        # Close immediately if loss exceeds max R threshold
-        if r_multiple <= self.max_loss_r_multiple:
+        # ── Step 0a: MAX LOSS — use server PnL, not R-multiple ──
+        # This is the SAFE way: pos.profit is always correct from MT5 server.
+        # We close if dollar loss exceeds a threshold based on equity.
+        # Also check R-multiple but ONLY if quotes are validated.
+        if price_valid and r_multiple <= self.max_loss_r_multiple:
             reason = (
                 f"Max loss hit: R={r_multiple:.2f} <= {self.max_loss_r_multiple}R "
-                f"(PnL={pos.profit:.2f}, age={age_hours:.1f}h)"
+                f"(PnL=${pos.profit:.2f}, age={age_hours:.1f}h)"
             )
             logger.warning(f"CLOSING {pos.ticket} {pos.symbol}: {reason}")
             result = self._close_position(pos, reason, "max_loss_close")
             if result:
                 return result
 
+        # PnL-based safety net: close if losing more than $500 regardless of quotes
+        if pos.profit < -500:
+            reason = (
+                f"PnL safety net: ${pos.profit:.2f} exceeds -$500 threshold "
+                f"(age={age_hours:.1f}h)"
+            )
+            logger.warning(f"CLOSING {pos.ticket} {pos.symbol}: {reason}")
+            result = self._close_position(pos, reason, "pnl_safety_close")
+            if result:
+                return result
+
         # ── Step 0b: MAX AGE TIMEOUT ─────────────────────
-        # Close positions that have been open too long (stuck trades)
         if age_hours >= self.max_position_age_hours:
             reason = (
                 f"Position timeout: {age_hours:.1f}h >= {self.max_position_age_hours}h "
-                f"(R={r_multiple:.2f}, PnL={pos.profit:.2f})"
+                f"(R={r_multiple:.2f}, PnL=${pos.profit:.2f})"
             )
             logger.warning(f"CLOSING {pos.ticket} {pos.symbol}: {reason}")
             result = self._close_position(pos, reason, "timeout_close")
             if result:
                 return result
 
-        # ── Step 1: Check for signal reversal / HOLD on losers ───
-        if self.enable_reversal_close and r_multiple < 0.5:
-            # Check reversal when trade is near breakeven or losing
+        # ── Step 1: Signal reversal (only with VALID quotes) ──
+        # We need reliable R-multiple to decide if position is losing
+        if self.enable_reversal_close and price_valid and r_multiple < 0.5:
             current_signal = _rerun_strategy(ticker_yf)
             if current_signal is not None:
                 signal_is_buy = current_signal in (
@@ -288,20 +424,29 @@ class PositionManager:
                     if result:
                         return result
 
-                # NEW: Close losing positions when signal goes HOLD
-                # If the trade was a buy but signal is now neutral, cut the loss
+                # Close losing positions when signal goes HOLD
                 if self.close_losing_on_hold and signal_is_hold and r_multiple < -0.5:
                     reason = (
                         f"Signal is HOLD and position losing: R={r_multiple:.2f}, "
-                        f"PnL={pos.profit:.2f} — no longer confirmed"
+                        f"PnL=${pos.profit:.2f} — no longer confirmed"
                     )
                     logger.info(f"Closing unconfirmed loser {pos.symbol}: {reason}")
                     result = self._close_position(pos, reason, "hold_loser_close")
                     if result:
                         return result
 
+        # ── SKIP Steps 2-3 if quotes are invalid ─────────
+        # Partial close and trailing stops REQUIRE accurate current_price.
+        # With bad quotes we'd set garbage SL levels or close profitable trades.
+        if not price_valid:
+            return PositionUpdate(
+                ticket=pos.ticket, symbol=pos.symbol,
+                action_taken="no_change",
+                pnl=pos.profit,
+                reason=f"Quotes stale — skipping trail/partial (PnL=${pos.profit:.2f})",
+            )
+
         # ── Step 2: Partial close at 1R ──────────────────
-        # Only if the position hasn't already been partially closed
         if (r_multiple >= self.partial_close_at_r
                 and "partial" not in pos.comment
                 and self.partial_close_pct > 0):
@@ -316,23 +461,26 @@ class PositionManager:
                         pos.ticket, volume=close_vol, comment="partial_1R"
                     )
                     if result.success:
-                        # Note: partial close doesn't return a PositionUpdate
-                        # because the position is still open (with reduced volume)
-                        pass
+                        pass  # Position still open with reduced volume
 
-        # ── Step 3: Trail stop ───────────────────────────
+        # ── Step 3: Trail stop (ONLY with valid quotes) ──
         if r_multiple >= self.trail_activation_r:
             atr = _get_current_atr(ticker_yf)
             if atr <= 0:
-                # Fallback: use a fraction of the risk as trail distance
                 trail_distance = risk * 0.75
             else:
                 trail_distance = atr * self.trail_atr_multiplier
 
-            if is_buy:
+            # Sanity: trail_distance must be positive and reasonable
+            if trail_distance <= 0 or trail_distance > pos.open_price * 0.5:
+                logger.warning(
+                    f"Trail distance {trail_distance:.5f} is unreasonable "
+                    f"for {pos.symbol} (entry={pos.open_price}) — skipping"
+                )
+            elif is_buy:
                 new_sl = current_price - trail_distance
-                # Never move SL backwards
-                if new_sl > pos.sl:
+                # Sanity: new_sl must be between 0 and current_price
+                if new_sl > 0 and new_sl < current_price and new_sl > pos.sl:
                     logger.info(
                         f"Trailing stop {pos.ticket}: "
                         f"SL {pos.sl:.5f} → {new_sl:.5f}"
@@ -359,7 +507,8 @@ class PositionManager:
                         )
             else:
                 new_sl = current_price + trail_distance
-                if new_sl < pos.sl or pos.sl == 0:
+                # Sanity: new_sl must be above current_price and improving
+                if new_sl > current_price and (new_sl < pos.sl or pos.sl == 0):
                     logger.info(
                         f"Trailing stop {pos.ticket}: "
                         f"SL {pos.sl:.5f} → {new_sl:.5f}"

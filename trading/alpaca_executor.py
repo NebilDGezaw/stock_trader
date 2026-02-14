@@ -187,40 +187,76 @@ def _ticker_exposure(positions, equity: float) -> dict[str, float]:
 #  Market Regime Filter (SPY SMA check)
 # ──────────────────────────────────────────────────────────
 
-_spy_regime_cache: dict[str, bool] = {}  # date → is_bullish
+_spy_regime_cache: dict[str, dict] = {}  # date → regime info
 
-def is_market_bullish(sma_period: int = 20) -> bool:
+def get_market_regime(sma_period: int = 20) -> dict:
     """
-    Check if SPY is above its 20-day SMA (bullish regime).
-    Cached per day to avoid redundant fetches.
+    GRADUATED market regime filter (replaces binary bullish/bearish).
+
+    Returns dict with:
+        - regime: "strong_bull", "bull", "neutral", "bear", "strong_bear"
+        - min_score: minimum signal score required for entry
+        - risk_multiplier: multiply risk_pct by this (> 1.0 in strong trends)
+
+    Graduated levels:
+        SPY > SMA + 2%    → strong_bull  (min_score=3, risk 1.5x)
+        SPY > SMA          → bull         (min_score=3, risk 1.0x)
+        SPY within 1% SMA → neutral      (min_score=4, risk 0.8x)
+        SPY < SMA          → bear         (min_score=5, risk 0.7x)
+        SPY < SMA - 2%    → strong_bear  (min_score=7, risk 0.5x)
     """
     today = datetime.utcnow().strftime("%Y-%m-%d")
     if today in _spy_regime_cache:
         return _spy_regime_cache[today]
 
+    default = {"regime": "bull", "min_score": 3, "risk_multiplier": 1.0}
+
     try:
         from data.fetcher import StockDataFetcher
         df = StockDataFetcher("SPY").fetch(period="3mo", interval="1d")
         if df is None or len(df) < sma_period + 1:
-            logger.warning("Cannot determine market regime — defaulting to bullish")
-            _spy_regime_cache[today] = True
-            return True
+            logger.warning("Cannot determine market regime — defaulting to bull")
+            _spy_regime_cache[today] = default
+            return default
 
         sma = df["Close"].rolling(sma_period).mean()
         current_price = float(df["Close"].iloc[-1])
         current_sma = float(sma.iloc[-1])
-        is_bullish = current_price > current_sma
+
+        if current_sma <= 0:
+            _spy_regime_cache[today] = default
+            return default
+
+        deviation = (current_price - current_sma) / current_sma
+
+        if deviation > 0.02:
+            regime = {"regime": "strong_bull", "min_score": 3, "risk_multiplier": 1.5}
+        elif deviation > 0:
+            regime = {"regime": "bull", "min_score": 3, "risk_multiplier": 1.0}
+        elif deviation > -0.01:
+            regime = {"regime": "neutral", "min_score": 4, "risk_multiplier": 0.8}
+        elif deviation > -0.02:
+            regime = {"regime": "bear", "min_score": 5, "risk_multiplier": 0.7}
+        else:
+            regime = {"regime": "strong_bear", "min_score": 7, "risk_multiplier": 0.5}
 
         logger.info(
             f"Market regime: SPY ${current_price:.2f} vs {sma_period}d SMA "
-            f"${current_sma:.2f} → {'BULLISH' if is_bullish else 'BEARISH'}"
+            f"${current_sma:.2f} ({deviation*100:+.1f}%) → {regime['regime'].upper()} "
+            f"(min_score={regime['min_score']}, risk_mult={regime['risk_multiplier']}x)"
         )
-        _spy_regime_cache[today] = is_bullish
-        return is_bullish
+        _spy_regime_cache[today] = regime
+        return regime
     except Exception as e:
-        logger.warning(f"Market regime check failed: {e} — defaulting to bullish")
-        _spy_regime_cache[today] = True
-        return True
+        logger.warning(f"Market regime check failed: {e} — defaulting to bull")
+        _spy_regime_cache[today] = default
+        return default
+
+
+def is_market_bullish(sma_period: int = 20) -> bool:
+    """Legacy compatibility wrapper — returns True if regime is bull or better."""
+    regime = get_market_regime(sma_period)
+    return regime["regime"] in ("strong_bull", "bull")
 
 
 # ──────────────────────────────────────────────────────────
@@ -411,20 +447,19 @@ class AlpacaExecutor:
                 reason="SELL signal skipped — no short selling (halal compliance)",
             )
 
-        # ── Safety Check 1b: Market regime filter ────────
-        #    In bearish markets, require stronger signals
-        bullish_market = is_market_bullish()
-        if not bullish_market:
-            min_score_bearish = 5  # require score >= 5 in bearish market
-            if abs(setup.composite_score) < min_score_bearish:
-                return ExecutionRecord(
-                    ticker=ticker, action=action, qty=0,
-                    entry_price=setup.entry_price,
-                    sl=setup.stop_loss, tp=setup.take_profit,
-                    risk_reward=setup.risk_reward, executed=False,
-                    reason=f"Bearish market — score {setup.composite_score} "
-                           f"< min {min_score_bearish} required",
-                )
+        # ── Safety Check 1b: GRADUATED market regime filter ─
+        #    Different market conditions require different conviction levels
+        regime = get_market_regime()
+        min_score = regime["min_score"]
+        if abs(setup.composite_score) < min_score:
+            return ExecutionRecord(
+                ticker=ticker, action=action, qty=0,
+                entry_price=setup.entry_price,
+                sl=setup.stop_loss, tp=setup.take_profit,
+                risk_reward=setup.risk_reward, executed=False,
+                reason=f"Market regime '{regime['regime']}' — score "
+                       f"{setup.composite_score} < min {min_score} required",
+            )
 
         # ── Safety Check 2: Minimum R:R ──────────────────
         min_rr = self.cfg.min_risk_reward
@@ -629,11 +664,25 @@ class AlpacaExecutor:
                 reason=f"Asset {ticker} is not tradeable on Alpaca",
             )
 
-        # ── Calculate share size ─────────────────────────
-        risk_pct = (
+        # ── Calculate share size with regime-adjusted risk ─
+        base_risk_pct = (
             self.cfg.leveraged_risk_pct if is_leveraged
             else self.cfg.default_risk_pct
         )
+
+        # Apply market regime multiplier
+        risk_pct = base_risk_pct * regime["risk_multiplier"]
+
+        # High-conviction bonus: STRONG_BUY with score >= 6 gets 1.5x risk
+        if setup.action == TradeAction.STRONG_BUY and abs(setup.composite_score) >= 6:
+            risk_pct *= 1.5
+            logger.info(
+                f"HIGH CONVICTION: {ticker} score={setup.composite_score}, "
+                f"risk boosted to {risk_pct*100:.1f}%"
+            )
+
+        # Cap at 3% per trade absolute maximum
+        risk_pct = min(risk_pct, 0.03)
 
         qty = calculate_shares(
             equity=acct.equity,

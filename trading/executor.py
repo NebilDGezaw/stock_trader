@@ -75,22 +75,24 @@ class ExecutionRecord:
 
 # ── Per-asset lot size caps ───────────────────────────────
 # These prevent catastrophic exposure even when SL is tight.
-# Values are conservative for a $100K account.
+# Values are conservative for a ~$76K account.
 MAX_LOT_BY_ASSET = {
-    "forex": 2.0,       # max 2 standard lots ($200K notional) per trade
-    "metal": 0.20,      # max 0.20 lots gold (~20 oz ≈ $100K notional)
-    "commodity": 0.50,  # max 0.50 lots energy/commodity
-    "crypto": 0.50,     # max 0.50 lots crypto
+    "forex": 1.0,       # max 1 standard lot ($100K notional) per trade (was 2.0)
+    "metal": 0.10,      # max 0.10 lots gold (~10 oz ≈ $20K notional) (was 0.20)
+    "commodity": 0.20,  # max 0.20 lots energy/commodity (was 0.50)
+    "crypto": 0.30,     # max 0.30 lots crypto (was 0.50)
     "stock": 1.0,       # fallback
 }
 
 # ── Minimum SL distances (reject trades with impossibly tight stops) ──
 # Prevents lot size explosion from sub-pip SL distances.
+# WIDENED: with 2x ATR SL, these should rarely trigger. If they do,
+# the market is extremely compressed and we shouldn't be trading.
 MIN_SL_DISTANCE = {
-    "forex": 0.0010,    # at least 10 pips for forex
-    "metal": 5.0,       # at least $5 for gold
-    "commodity": 0.50,  # at least $0.50 for silver/energy
-    "crypto": 50.0,     # at least $50 for BTC, $0.50 for alts (checked dynamically)
+    "forex": 0.0020,    # at least 20 pips for forex (was 10 — too tight for 4H candles)
+    "metal": 10.0,      # at least $10 for gold (was $5)
+    "commodity": 1.0,   # at least $1 for silver/energy (was $0.50)
+    "crypto": 100.0,    # at least $100 for BTC (was $50)
     "stock": 0.10,      # fallback
 }
 

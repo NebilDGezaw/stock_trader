@@ -258,8 +258,8 @@ CRYPTO_MODE = {
     "volume_lookback": 20,
     "volume_spike_multiplier": 2.0,
     "atr_period": 14,
-    "atr_sl_multiplier": 1.5,
-    "atr_tp_multiplier": 3.0,
+    "atr_sl_multiplier": 2.0,       # WIDER: 2x ATR (was 1.5x — too tight for 4H candles)
+    "atr_tp_multiplier": 3.0,       # 3x ATR TP — natural 1:1.5 R:R
     "trailing_stop": True,
     "trail_activation_atr": 1.5,
     "trail_distance_atr": 1.0,
@@ -271,31 +271,28 @@ CRYPTO_MODE = {
         "sell": 3,
         "strong_sell": 5,
     },
-    "risk_per_trade": 0.015,        # was 0.01 — lot caps (0.50) prevent over-leverage
+    "risk_per_trade": 0.015,        # 1.5% risk per trade
 }
 
-CRYPTO_TICKERS = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD", "DOGE-USD", "ADA-USD"]
+# FOCUSED: BTC and ETH only — highest liquidity, lowest spread
+CRYPTO_TICKERS = ["BTC-USD", "ETH-USD"]
 
 # ──────────────────────────────────────────────
 #  Forex ICT Mode (1h candles, kill-zone driven)
 # ──────────────────────────────────────────────
 FOREX_MODE = {
-    "swing_lookback": 3,
-    "fvg_min_gap_pct": 0.02,
-    "ob_proximity": 0.005,
     "atr_period": 14,
-    "atr_sl_multiplier": 1.0,
-    "atr_tp_multiplier": 2.0,
-    "kill_zone_multiplier": 2.0,
-    "off_session_multiplier": 0.5,
-    "asian_penalty": 1,
-    "overlap_bonus": 1,
+    "atr_sl_multiplier": 2.0,       # WIDER: 2x ATR (was 1.0x — killed every trade)
+    "atr_tp_multiplier": 3.0,       # 3x ATR TP — natural 1:1.5 R:R
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9,
     "score_thresholds": {
-        "strong_buy": 5,    # was 6 — let more strong setups through
-        "buy": 3,           # was 4 — key change: many valid forex setups score 3-4
+        "strong_buy": 6,
+        "buy": 4,
         "neutral": 2,
-        "sell": 3,          # was 4
-        "strong_sell": 5,   # was 6
+        "sell": 4,
+        "strong_sell": 6,
     },
-    "risk_per_trade": 0.015,        # was 0.01 — lot caps already prevent blowups
+    "risk_per_trade": 0.01,          # 1% risk per trade (conservative)
 }

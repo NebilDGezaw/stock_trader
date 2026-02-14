@@ -210,6 +210,43 @@ def analyze_ticker(ticker: str, period: str, interval: str, stock_mode: bool):
 #  Mode: Entry — analyze and place trades
 # ──────────────────────────────────────────────────────────
 
+def _rank_by_relative_strength(tickers: list[str], period: str = "1mo") -> list[str]:
+    """
+    Rank tickers by relative strength (momentum) over the given period.
+
+    Returns tickers sorted best-to-worst by recent performance.
+    Strongest tickers get analyzed first and have priority for position slots.
+    """
+    try:
+        from data.fetcher import StockDataFetcher
+        momentum = []
+        for ticker in tickers:
+            try:
+                df = StockDataFetcher(ticker).fetch(period=period, interval="1d")
+                if df is not None and len(df) >= 10:
+                    # Use 20-day return as relative strength
+                    lookback = min(20, len(df) - 1)
+                    ret = (df["Close"].iloc[-1] / df["Close"].iloc[-lookback] - 1) * 100
+                    momentum.append((ticker, ret))
+                else:
+                    momentum.append((ticker, 0.0))
+            except Exception:
+                momentum.append((ticker, 0.0))
+
+        # Sort by highest momentum first
+        momentum.sort(key=lambda x: -x[1])
+
+        ranked = [t for t, r in momentum]
+        logger.info(
+            "Relative strength ranking: " +
+            ", ".join(f"{t}({r:+.1f}%)" for t, r in momentum)
+        )
+        return ranked
+    except Exception as e:
+        logger.warning(f"Relative strength ranking failed: {e} — using original order")
+        return tickers
+
+
 def mode_entry(client: AlpacaClient, session_name: str, dry_run: bool):
     """Analyze session tickers and place trades."""
     session = SESSIONS.get(session_name)
@@ -222,7 +259,10 @@ def mode_entry(client: AlpacaClient, session_name: str, dry_run: bool):
         logger.warning("Market is CLOSED. Bracket orders will queue for next open.")
 
     logger.info(f"=== ALPACA ENTRY: {session['label']} ===")
-    logger.info(f"Tickers: {', '.join(session['tickers'])}")
+
+    # Rank tickers by relative strength — strongest first
+    tickers = _rank_by_relative_strength(session["tickers"])
+    logger.info(f"Tickers (ranked): {', '.join(tickers)}")
 
     executor = AlpacaExecutor(client, AlpacaExecutorConfig(
         max_concurrent_positions=10,
@@ -234,7 +274,7 @@ def mode_entry(client: AlpacaClient, session_name: str, dry_run: bool):
     ))
 
     records = []
-    for ticker in session["tickers"]:
+    for ticker in tickers:
         logger.info(f"Analyzing {ticker}...")
         strat, setup = analyze_ticker(
             ticker, session["period"], session["interval"],

@@ -49,36 +49,37 @@ logger = logging.getLogger("trading.runner")
 # ──────────────────────────────────────────────────────────
 
 SESSIONS = {
+    # ── Forex: 4H candles, major pairs only ──────────────
     "london": {
-        "label": "🇬🇧 London Open — Forex & Metals",
-        "tickers": ["EURUSD=X", "GBPUSD=X", "EURGBP=X", "GBPJPY=X",
-                     "USDCHF=X", "GC=F", "SI=F"],
-        "interval": "1h",
-        "period": "1mo",
+        "label": "🇬🇧 London — Forex Majors",
+        "tickers": ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X"],
+        "interval": "4h",
+        "period": "3mo",
         "stock_mode": False,
     },
+    # ── NY session: Forex + Commodities ──────────────────
     "ny": {
-        "label": "🇺🇸 NY Session — Crypto, Metals & Forex",
-        "tickers": ["GC=F", "SI=F", "BTC-USD", "ETH-USD", "SOL-USD",
-                     "XRP-USD", "USDJPY=X", "USDCAD=X", "USDCHF=X",
-                     "GBPUSD=X"],
-        "interval": "1h",
-        "period": "1mo",
+        "label": "🇺🇸 NY — Forex & Metals",
+        "tickers": ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "SI=F"],
+        "interval": "4h",
+        "period": "3mo",
         "stock_mode": False,
     },
+    # ── Overlap: best liquidity, all assets ──────────────
     "overlap": {
-        "label": "🔥 London/NY Overlap",
-        "tickers": ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "SI=F",
-                     "BTC-USD", "ETH-USD", "SOL-USD"],
-        "interval": "1h",
-        "period": "1mo",
+        "label": "🔥 London/NY Overlap — All",
+        "tickers": ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X",
+                     "GC=F", "SI=F", "BTC-USD", "ETH-USD"],
+        "interval": "4h",
+        "period": "3mo",
         "stock_mode": False,
     },
+    # ── Crypto: 4H candles, BTC & ETH only ───────────────
     "asian_crypto": {
-        "label": "🌏 Asian Session — Crypto",
-        "tickers": ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD"],
-        "interval": "1h",
-        "period": "1mo",
+        "label": "🌏 Crypto — BTC & ETH",
+        "tickers": ["BTC-USD", "ETH-USD"],
+        "interval": "4h",
+        "period": "3mo",
         "stock_mode": False,
     },
 }
@@ -89,12 +90,16 @@ SESSIONS = {
 # ──────────────────────────────────────────────────────────
 
 def send_telegram(text: str, chat_id: str = None):
-    """Send a message via Telegram Bot API."""
+    """Send a message via Telegram Bot API (HFM → group chat)."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat_id = chat_id or os.environ.get("TELEGRAM_CHAT_ID", "")
     if not token or not chat_id:
         logger.warning("Telegram credentials not set — skipping notification")
         return
+
+    # Telegram max message length is 4096 chars
+    if len(text) > 4000:
+        text = text[:3950] + "\n\n... (truncated)"
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = json.dumps({
@@ -114,6 +119,22 @@ def send_telegram(text: str, chat_id: str = None):
                 logger.error(f"Telegram error: {result}")
     except Exception as e:
         logger.error(f"Telegram send failed: {e}")
+        # Retry without HTML parse mode (in case HTML entities broke it)
+        try:
+            import re
+            clean_text = re.sub(r'<[^>]+>', '', text)
+            payload = json.dumps({
+                "chat_id": chat_id,
+                "text": clean_text,
+                "disable_web_page_preview": True,
+            }).encode("utf-8")
+            req2 = urllib.request.Request(
+                url, data=payload, headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req2, timeout=15) as resp:
+                pass
+        except Exception:
+            pass
 
 
 # ──────────────────────────────────────────────────────────
@@ -127,10 +148,17 @@ def analyze_ticker(ticker: str, period: str, interval: str, stock_mode: bool):
     try:
         asset_type = _detect_asset_type(ticker)
 
-        # Override interval for forex (1h is optimal)
-        if asset_type == "forex" and interval == "1d":
-            interval = "1h"
-            period = "1mo"
+        # Override data parameters based on asset type
+        # All HFM assets now use 4H candles for the strategy rebuild
+        if asset_type == "forex":
+            interval = "4h"
+            period = "3mo"
+        elif asset_type == "crypto":
+            interval = "4h"
+            period = "3mo"
+        elif asset_type == "commodity":
+            interval = "4h"
+            period = "3mo"
 
         df = StockDataFetcher(ticker).fetch(period=period, interval=interval)
         if df is None or len(df) < 30:
@@ -307,11 +335,11 @@ def mode_monitor(client: MT5Client, dry_run: bool):
     manager = PositionManager(
         client,
         trail_activation_r=1.0,
-        trail_atr_multiplier=1.0,
-        partial_close_at_r=1.0,
+        trail_atr_multiplier=1.5,      # wider trail distance (was 1.0 — too tight)
+        partial_close_at_r=1.5,        # partial close at 1.5R (was 1.0 — too early)
         partial_close_pct=0.5,
         enable_reversal_close=True,
-        max_position_age_hours=48.0,   # close stuck positions after 48h
+        max_position_age_hours=72.0,   # 72h for 4H candles (was 48h for 1H)
         max_loss_r_multiple=-2.0,      # close if loss exceeds 2R
         close_losing_on_hold=True,     # close losers when signal goes neutral
         dry_run=dry_run,
