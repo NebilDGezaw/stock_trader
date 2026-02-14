@@ -128,6 +128,18 @@ class PortfolioReport:
     fear_greed_index: int = 0
     fear_greed_label: str = ""
 
+    # ── Benchmark Comparison ("Is this worth it?") ──
+    benchmarks: dict = field(default_factory=dict)
+    #   {
+    #     "SPY":  {"return_pct": float, "period": "1w/1m/ytd"},
+    #     "QQQ":  {"return_pct": float},
+    #     "BTC":  {"return_pct": float},
+    #     "GLD":  {"return_pct": float},
+    #     "alpha_vs_primary": float,   # portfolio - primary benchmark
+    #     "worth_it": bool,            # are we beating passive?
+    #     "verdict": str,              # human explanation
+    #   }
+
 
 # ══════════════════════════════════════════════════════════
 #  Main Analyzer
@@ -243,7 +255,10 @@ class PortfolioAnalyzer:
         # ── Step 15: Crypto Fear & Greed ──
         self._fetch_fear_greed(report)
 
-        # ── Step 16: Generate suggestions ──
+        # ── Step 16: Benchmark comparison ("Is this worth it?") ──
+        self._compare_benchmarks(report, trades_df, snapshots_df)
+
+        # ── Step 17: Generate suggestions ──
         self._generate_suggestions(report)
 
         return report
@@ -760,7 +775,182 @@ class PortfolioAnalyzer:
             logger.debug(f"Fear & Greed fetch failed: {e}")
 
     # ──────────────────────────────────────────────────────
-    #  Step 16: Suggestions
+    #  Step 16: Benchmark Comparison
+    # ──────────────────────────────────────────────────────
+
+    def _compare_benchmarks(self, report, trades_df, snapshots_df):
+        """
+        Compare portfolio performance against passive benchmarks.
+        Answers: "Is this active trading worth the effort?"
+
+        Benchmarks:
+          Alpaca: SPY (primary), QQQ (tech-heavy comparison)
+          HFM:    BTC (crypto primary), GLD (commodities), 60/40 BTC/Gold
+        """
+        benchmarks = {}
+
+        # Determine the comparison periods from our data
+        periods = []
+        if not trades_df.empty and "timestamp" in trades_df.columns:
+            first_trade = trades_df["timestamp"].min()
+            now = datetime.utcnow()
+            data_span = (now - first_trade).days
+            if data_span >= 5:
+                periods.append(("1w", "5d"))
+            if data_span >= 21:
+                periods.append(("1m", "1mo"))
+            if data_span >= 60:
+                periods.append(("3m", "3mo"))
+            # Always include YTD
+            periods.append(("ytd", "ytd"))
+
+        # Fetch benchmark returns
+        tickers = {}
+        if self.system == "alpaca":
+            tickers = {"SPY": "SPY", "QQQ": "QQQ"}
+        else:
+            tickers = {"BTC": "BTC-USD", "GLD": "GC=F"}
+
+        for label, yf_ticker in tickers.items():
+            benchmarks[label] = {}
+            for period_label, yf_period in periods:
+                try:
+                    from data.fetcher import StockDataFetcher
+                    df = StockDataFetcher(yf_ticker).fetch(
+                        period=yf_period, interval="1d"
+                    )
+                    if df is not None and len(df) >= 2:
+                        ret = float(
+                            (df["Close"].iloc[-1] - df["Close"].iloc[0])
+                            / df["Close"].iloc[0] * 100
+                        )
+                        benchmarks[label][period_label] = round(ret, 2)
+                except Exception:
+                    pass
+
+        if not benchmarks:
+            return
+
+        # Calculate our return over the same periods
+        our_returns = {}
+        if not snapshots_df.empty and "equity" in snapshots_df.columns:
+            snaps = snapshots_df.copy()
+            snaps["timestamp"] = pd.to_datetime(snaps["timestamp"], errors="coerce")
+            snaps = snaps.dropna(subset=["timestamp"]).sort_values("timestamp")
+
+            if len(snaps) >= 2:
+                latest_eq = float(snaps.iloc[-1]["equity"])
+                for period_label, _ in periods:
+                    days_back = {"1w": 7, "1m": 30, "3m": 90, "ytd": 365}.get(period_label, 30)
+                    if period_label == "ytd":
+                        year_start = datetime(datetime.utcnow().year, 1, 1)
+                        past = snaps[snaps["timestamp"] >= year_start.isoformat()]
+                    else:
+                        cutoff = datetime.utcnow() - timedelta(days=days_back)
+                        past = snaps[snaps["timestamp"] >= cutoff.isoformat()]
+
+                    if not past.empty:
+                        start_eq = float(past.iloc[0]["equity"])
+                        if start_eq > 0:
+                            our_returns[period_label] = round(
+                                (latest_eq - start_eq) / start_eq * 100, 2
+                            )
+
+        benchmarks["portfolio"] = our_returns
+
+        # ── Primary benchmark comparison ──
+        primary = "SPY" if self.system == "alpaca" else "BTC"
+        secondary = "QQQ" if self.system == "alpaca" else "GLD"
+
+        # Use the longest available period for the "worth it" judgment
+        best_period = None
+        for p in reversed([pl for pl, _ in periods]):
+            if p in our_returns and p in benchmarks.get(primary, {}):
+                best_period = p
+                break
+
+        if best_period:
+            our_ret = our_returns[best_period]
+            bench_ret = benchmarks[primary][best_period]
+            alpha = round(our_ret - bench_ret, 2)
+            bench2_ret = benchmarks.get(secondary, {}).get(best_period)
+
+            benchmarks["comparison_period"] = best_period
+            benchmarks["alpha_vs_primary"] = alpha
+
+            # Annualize for comparison
+            days_map = {"1w": 7, "1m": 30, "3m": 90, "ytd": 365}
+            days = days_map.get(best_period, 30)
+
+            if our_ret > bench_ret and our_ret > 0:
+                if alpha > 2.0:
+                    benchmarks["worth_it"] = True
+                    benchmarks["verdict"] = (
+                        f"YES — outperforming {primary} by {alpha:+.1f}% over {best_period}. "
+                        f"Portfolio: {our_ret:+.1f}% vs {primary}: {bench_ret:+.1f}%"
+                        + (f" vs {secondary}: {bench2_ret:+.1f}%" if bench2_ret is not None else "")
+                        + f". Active trading is adding value."
+                    )
+                else:
+                    benchmarks["worth_it"] = True
+                    benchmarks["verdict"] = (
+                        f"MARGINAL — beating {primary} by only {alpha:+.1f}% over {best_period}. "
+                        f"Portfolio: {our_ret:+.1f}% vs {primary}: {bench_ret:+.1f}%. "
+                        f"The edge is slim — a few bad trades and you'd be better off passive."
+                    )
+            elif our_ret > 0 and our_ret <= bench_ret:
+                benchmarks["worth_it"] = False
+                benchmarks["verdict"] = (
+                    f"NO — making money ({our_ret:+.1f}%) but UNDERPERFORMING {primary} "
+                    f"({bench_ret:+.1f}%) by {abs(alpha):.1f}%. You'd have been better off "
+                    f"just buying {primary}. The active trading is destroying value."
+                )
+            elif our_ret <= 0 and bench_ret > 0:
+                benchmarks["worth_it"] = False
+                benchmarks["verdict"] = (
+                    f"NO — LOSING money ({our_ret:+.1f}%) while {primary} is UP "
+                    f"({bench_ret:+.1f}%). Alpha: {alpha:+.1f}%. "
+                    f"Active trading is significantly worse than passive."
+                )
+            elif our_ret <= 0 and bench_ret <= 0:
+                if our_ret > bench_ret:
+                    benchmarks["worth_it"] = True
+                    benchmarks["verdict"] = (
+                        f"DEFENSIVE WIN — both negative, but we lost less. "
+                        f"Portfolio: {our_ret:+.1f}% vs {primary}: {bench_ret:+.1f}%. "
+                        f"Alpha: {alpha:+.1f}%. Risk management is working."
+                    )
+                else:
+                    benchmarks["worth_it"] = False
+                    benchmarks["verdict"] = (
+                        f"NO — lost more ({our_ret:+.1f}%) than even {primary} "
+                        f"({bench_ret:+.1f}%). Alpha: {alpha:+.1f}%. "
+                        f"Active trading made the drawdown worse."
+                    )
+
+            # Sharpe-based judgment
+            if report.sharpe_ratio > 0:
+                if report.sharpe_ratio >= 2.0:
+                    benchmarks["sharpe_verdict"] = (
+                        f"Excellent risk-adjusted returns (Sharpe {report.sharpe_ratio:.2f}). "
+                        f"Well compensated for the risk taken."
+                    )
+                elif report.sharpe_ratio >= 1.0:
+                    benchmarks["sharpe_verdict"] = (
+                        f"Decent risk-adjusted returns (Sharpe {report.sharpe_ratio:.2f}). "
+                        f"Positive but could be more consistent."
+                    )
+                else:
+                    benchmarks["sharpe_verdict"] = (
+                        f"Poor risk-adjusted returns (Sharpe {report.sharpe_ratio:.2f}). "
+                        f"The volatility isn't being compensated with enough return. "
+                        f"Consider reducing position sizes for more consistency."
+                    )
+
+        report.benchmarks = benchmarks
+
+    # ──────────────────────────────────────────────────────
+    #  Step 17: Suggestions
     # ──────────────────────────────────────────────────────
 
     def _generate_suggestions(self, report):
@@ -900,6 +1090,23 @@ class PortfolioAnalyzer:
                     f"CRYPTO SENTIMENT: Fear & Greed at {report.fear_greed_index} "
                     f"(Extreme Fear). Historically a good buying opportunity. "
                     f"Consider being more aggressive with crypto entries."
+                )
+
+        # ── Benchmark suggestions ──
+        bm = report.benchmarks
+        if bm:
+            verdict = bm.get("verdict", "")
+            if verdict:
+                suggestions.insert(0, f"BENCHMARK: {verdict}")
+            sharpe_v = bm.get("sharpe_verdict", "")
+            if sharpe_v:
+                suggestions.append(f"RISK-ADJUSTED: {sharpe_v}")
+            if bm.get("worth_it") is False:
+                primary = "SPY" if self.system == "alpaca" else "BTC"
+                suggestions.append(
+                    f"CONSIDER: If active trading continues underperforming {primary}, "
+                    f"allocating part of the capital to a passive {primary} position "
+                    f"would reduce risk and improve returns."
                 )
 
         report.suggestions = suggestions

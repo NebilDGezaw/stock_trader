@@ -130,6 +130,37 @@ def generate_telegram_report(report: PortfolioReport) -> str:
         lines.append(f"  EOY range:     {mc['percentile_10']*100:+.1f}% to {mc['percentile_90']*100:+.1f}%")
     lines.append("")
 
+    # ── Benchmark ("Is this worth it?") ──
+    bm = report.benchmarks
+    if bm and bm.get("verdict"):
+        worth_emoji = "\U0001F3C6" if bm.get("worth_it") else "\u274C"
+        lines.append(f"{worth_emoji} <b>VS PASSIVE BENCHMARK</b>")
+        primary = "SPY" if report.system == "alpaca" else "BTC"
+        secondary = "QQQ" if report.system == "alpaca" else "GLD"
+        period = bm.get("comparison_period", "")
+
+        # Show returns side by side
+        our_ret = bm.get("portfolio", {})
+        primary_ret = bm.get(primary, {})
+        secondary_ret = bm.get(secondary, {})
+        for p_label in ["1w", "1m", "ytd"]:
+            ours = our_ret.get(p_label)
+            theirs = primary_ret.get(p_label)
+            theirs2 = secondary_ret.get(p_label)
+            if ours is not None and theirs is not None:
+                alpha = ours - theirs
+                alpha_emoji = "\u2705" if alpha > 0 else "\u274C"
+                line = f"  {p_label.upper():4s} {alpha_emoji} Us: <b>{ours:+.1f}%</b> vs {primary}: {theirs:+.1f}%"
+                if theirs2 is not None:
+                    line += f" vs {secondary}: {theirs2:+.1f}%"
+                line += f"  (alpha: {alpha:+.1f}%)"
+                lines.append(line)
+
+        lines.append(f"  <i>{bm['verdict']}</i>")
+        if bm.get("sharpe_verdict"):
+            lines.append(f"  <i>{bm['sharpe_verdict']}</i>")
+        lines.append("")
+
     # ── Weaknesses ──
     if report.weaknesses:
         lines.append("\u26A0\uFE0F <b>Weaknesses Detected</b>")
@@ -276,6 +307,32 @@ def generate_cli_report(report: PortfolioReport) -> str:
         lines.append(f"    Prob positive return:        {mc['prob_positive']:.0%}")
         lines.append(f"    Prob > 1% return:            {mc['prob_above_1pct']:.0%}")
         lines.append(f"    Prob > 5% loss:              {mc['prob_below_neg5pct']:.0%}")
+        lines.append("")
+
+    # Benchmark
+    bm = report.benchmarks
+    if bm and bm.get("verdict"):
+        worth = "[WORTH IT]" if bm.get("worth_it") else "[NOT WORTH IT]"
+        lines.append(f"  VS PASSIVE BENCHMARK {worth}")
+        primary = "SPY" if report.system == "alpaca" else "BTC"
+        secondary = "QQQ" if report.system == "alpaca" else "GLD"
+        our_ret = bm.get("portfolio", {})
+        primary_ret = bm.get(primary, {})
+        secondary_ret = bm.get(secondary, {})
+        for p_label in ["1w", "1m", "ytd"]:
+            ours = our_ret.get(p_label)
+            theirs = primary_ret.get(p_label)
+            theirs2 = secondary_ret.get(p_label)
+            if ours is not None and theirs is not None:
+                alpha = ours - theirs
+                mark = "+" if alpha > 0 else "-"
+                line = f"    {p_label.upper():4s} Us: {ours:+.1f}%  {primary}: {theirs:+.1f}%"
+                if theirs2 is not None:
+                    line += f"  {secondary}: {theirs2:+.1f}%"
+                line += f"  alpha: {alpha:+.1f}%"
+                lines.append(line)
+        for vline in _wrap(bm["verdict"], w - 4):
+            lines.append(f"    {vline}")
         lines.append("")
 
     # Weaknesses
